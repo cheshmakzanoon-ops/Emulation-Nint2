@@ -96,6 +96,24 @@ CTest fixture. Optional independent assembly parity is checked by
 `tests/verify_assembler_fixtures.py`. Additional details are recorded
 in [SYNTHETIC_ABI.md](docs/SYNTHETIC_ABI.md).
 
+## AArch64 CPU continuation (source-published, full CI pending)
+
+The reference interpreter has since added original AArch64 exclusive
+and LSE atomic operations (including 64/128-bit paired operations),
+EL0 NZCV and TPIDR_EL0 register access, and CRC32/CRC32C instructions.
+The architecture conformance corpus now includes independent Clang
+assembly and freestanding compiled C guests, with checks for permissions,
+atomic alias generations, register semantics and golden checksum values.
+
+**Validation status:** the CRC interpreter passed targeted local C++20
+conformance checks (8,192 deterministic vectors and canonical digests),
+and the original CRC guest cross-compiled successfully. The combined
+current-branch Linux/Windows/sanitizer CI suite is not yet confirmed
+passing, so these additions must not be described as a fully validated
+breakthrough. See [architecture and test record](docs/CPU_ATOMIC_CRC_MILESTONES.md)
+and [status](docs/STATUS.md). Nintendo console ABI, firmware and game
+compatibility remain unimplemented.
+
 ## Working ELF64/AArch64 execution milestone
 
 The reference interpreter executes original ARM64 instructions with guest page permissions. A bounded static ELF64 loader maps PT_LOAD segments. Original program: MOVZ W0,#7; ADD W0,W0,#35; BRK #0. The result is x0=42 after 3 instructions.
