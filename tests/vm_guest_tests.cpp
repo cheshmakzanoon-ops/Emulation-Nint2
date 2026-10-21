@@ -1,6 +1,7 @@
 #include "nint2/arena.hpp"
 #include "nint2/elf.hpp"
 #include "nint2/session.hpp"
+#include "nint2/scheduler.hpp"
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -222,6 +223,24 @@ int main(int argc, char** argv) {
     REQUIRE(Call(peer, 19, first).stop == SessionStop::StepLimit);
     REQUIRE(memory.Read64(first) == 0x1122334455667788ULL);
     REQUIRE(Call(guest, 19, first).stop == SessionStop::StepLimit);
+
+    // Terminal guest CPU faults must also relinquish guest heap pages when
+    // the scheduler retires that process; repeat retirement is harmless.
+    GuestMemory dying_memory(0x40000000);
+    REQUIRE(InstallSvc(dying_memory)); // uninitialized zero instruction at +4
+    SyntheticSession dying(dying_memory, 0x1000, 0x3000);
+    REQUIRE(Call(dying, 18, kPage, 3).stop == SessionStop::StepLimit);
+    REQUIRE(dying.ArenaAllocatedBytes() == kPage);
+    REQUIRE(dying_memory.Read64(kArenaBase) == 0);
+    SyntheticScheduler dying_scheduler;
+    REQUIRE(dying_scheduler.Add(dying));
+    const auto failed = dying_scheduler.Run(8);
+    REQUIRE(failed.stop == SchedulerStop::GuestFailed && failed.failed == 1);
+    REQUIRE(dying.ArenaRegionCount() == 0);
+    REQUIRE(dying.ArenaAllocatedBytes() == 0);
+    REQUIRE(!dying_memory.Read8(kArenaBase).has_value());
+    dying.RetireHandles();
+    REQUIRE(dying.ArenaRegionCount() == 0);
 
     // Unknown SVCs still surface an exception and leave the instruction PC
     // in place instead of silently succeeding.

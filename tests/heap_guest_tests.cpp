@@ -146,7 +146,9 @@ int main(int argc, char** argv) {
     CHECK(missing.stop == SessionStop::Exited && missing.exit_code == 91);
     CHECK(absent.Stdout().empty());
     CHECK(absent.OpenAssetCount() == 0);
-    CHECK(absent.ArenaRegionCount() == 1); // guest aborted without Free
+    CHECK(absent.ArenaRegionCount() == 0); // Exit releases unfreed guest pages
+    CHECK(absent.ArenaAllocatedBytes() == 0);
+    CHECK(!absent_space.Read8(vm::GuestArena::kBase).has_value());
 
     GuestMemory short_space(0x40000000);
     CHECK(LoadElf64(elf, short_space).error == ElfError::None);
@@ -156,7 +158,9 @@ int main(int argc, char** argv) {
     CHECK(short_run.stop == SessionStop::Exited && short_run.exit_code == 91);
     CHECK(short_guest.Stdout().empty());
     CHECK(short_guest.OpenAssetCount() == 0);
-    CHECK(short_guest.ArenaRegionCount() == 1);
+    CHECK(short_guest.ArenaRegionCount() == 0);
+    CHECK(short_guest.ArenaAllocatedBytes() == 0);
+    CHECK(!short_space.Read8(vm::GuestArena::kBase).has_value());
 
     // Direct synthetic SVC checks use executable memory with a single SVC #0.
     GuestMemory space(0x40000000);

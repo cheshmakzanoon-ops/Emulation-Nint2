@@ -45,7 +45,11 @@ public:
     // A blocked synthetic SVC is resumable only after state changes. These
     // methods are for the host-owned cooperative scheduler, not guest ABI.
     [[nodiscard]] bool CanResume() const noexcept;
-    void RetireHandles() noexcept { handles_.Retire(); assets_.CloseAll(); }
+    void RetireHandles() noexcept {
+        handles_.Retire();
+        assets_.CloseAll();
+        arena_.ReleaseAll();
+    }
     // Host supplies immutable original data before the first Run(); the guest
     // never opens an arbitrary host file or modifies mounted bytes.
     [[nodiscard]] assets::Result MountAsset(std::string_view path,

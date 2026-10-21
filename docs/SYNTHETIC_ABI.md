@@ -318,3 +318,16 @@ buffer in x20, provisioned by the CLI at 0x3fff0000, and prints
 define their own bootstrap convention. The architecture provides no general
 native filesystem ABI, permissions database, symlinks, host path mapping,
 storage persistence, compressed archives or Nintendo content loader.
+
+### Process exit and fault cleanup
+
+Exiting via SVC 2 retires all guest-owned queue endpoints, closes open asset
+descriptors and now **unmaps all guest-arena regions**, including regions
+the guest forgot to free. When run under the synthetic cooperative scheduler,
+terminal CPU exceptions or unsupported SVCs use the same idempotent cleanup.
+Host/bootstrap pages outside the arena remain untouched. The remaining guest
+context and queue handle counts are diagnostic, not live capabilities. A
+standalone session stopped by a CPU exception is still inspectable until it
+is explicitly retired or destroyed. Tests cover both a guest that exits
+without Free and a faulting guest retired by the scheduler.
+

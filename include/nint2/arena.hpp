@@ -48,6 +48,9 @@ public:
     [[nodiscard]] Result Allocate(std::uint64_t size, Access access,
                                   std::uint64_t preferred = 0);
     [[nodiscard]] Error Free(std::uint64_t base) noexcept;
+    // Reclaim every region on synthetic process exit or terminal CPU fault;
+    // idempotent and safe even when the arena owns no pages.
+    void ReleaseAll() noexcept;
     [[nodiscard]] Error Protect(std::uint64_t base, Access access) noexcept;
     // Queries any byte within an allocation, without revealing host mappings.
     [[nodiscard]] Result Query(std::uint64_t address) const noexcept;

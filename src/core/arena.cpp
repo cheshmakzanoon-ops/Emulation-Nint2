@@ -7,12 +7,17 @@ namespace {
 constexpr std::uint64_t kPage = GuestMemory::kPageSize;
 }
 
-GuestArena::~GuestArena() noexcept {
+GuestArena::~GuestArena() noexcept { ReleaseAll(); }
+
+void GuestArena::ReleaseAll() noexcept {
     // The caller keeps GuestMemory alive throughout this arena's lifetime.
+    // Retiring guest-owned allocations must not touch external/host mappings.
     for (const auto& [base, region] : regions_) {
         (void)base;
         (void)memory_.Unmap(region.base, region.size);
     }
+    regions_.clear();
+    allocated_ = 0;
 }
 
 bool GuestArena::ValidAccess(Access flags) noexcept {
