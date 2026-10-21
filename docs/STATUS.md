@@ -25,7 +25,7 @@
 
 ## Missing or limited
 
-- No full ARMv8 instruction set, JIT, Horizon kernel, service ABI, SVC handler, renderer, audio, input, or executable containers for Nintendo software.
+- No full ARMv8 instruction set, JIT, Horizon kernel, real Horizon service ABI/SVC handler, renderer, audio, input, or executable containers for Nintendo software.
 - ELF loader rejects dynamic linking, ET_DYN, relocations, overlapped LOAD pages, W+X segments, and unsupported cases.
 - Lazy *data* buffers but one guest page metadata entry per mapped 4 KiB page.
 - No native Switch 2 compatibility, games, firmware, keys or performance claims.
@@ -44,3 +44,16 @@
 - Implemented architecturally encoded ADR/ADRP signed 21-bit PC-relative address generation (including negative offset and page offset cases), verified with original Clang-assembled encodings.
 - Tests actually run locally: CMake configure/build + CTest **5/5 GCC**, **5/5 Clang**, **5/5 GCC UBSan**. No new Windows/remote CI result is claimed.
 - Next: synthetic guest-only SVC boundary and independently authored ELF64 program that writes output and exits; **this will not claim any actual Switch 2 Horizon ABI**.
+
+## 2026-10-21 synthetic guest service and output milestone
+
+**Verified end-to-end breakthrough:** original AArch64 ELF64 program generated from [tests/fixtures/original_hello.s](../tests/fixtures/original_hello.s) executes via the interpreter, addresses its own message with ADR, passes the guest pointer to SVC #0, writes `Hello from AArch64!\n`, and exits with status 0 after **8 guest instructions**.
+
+- [x] `SyntheticSession` dispatches *original, explicitly non-Horizon* guest services for bounded Write, Exit and deterministic Ticks. Unknown calls and SVC immediates stop, not fake success.
+- [x] Read-permission-checked guest buffers; no host-pointer passthrough. Up to 4096 bytes/call and 65536 captured bytes/session, invalid-pointer rollback, errors for invalid descriptors/ranges and output overflow.
+- [x] New `nint2 --run-synthetic <original.elf>` CLI command; original `--run-elf` breakpoint mode remains functional.
+- [x] Independent source assembly and original program bytes integrated in a generated ELF test fixture; CTest auto-generates a binary in the **build** folder (not repository) before an end-to-end CLI test.
+- [x] Local Linux x64 CMake configure/build and CTest: **8/8 GCC**, **8/8 Clang**, **8/8 GCC UBSan**, **8/8 GCC ASan+UBSan**. Cross-linked Clang+LLD original_hello.s independently tested via CLI with the same output/exit. CTest checks exception reporting, bad pointers, output budgets, services, deterministic ticks and bounded loops.
+- [x] Commits: [13dda686](https://github.com/cheshmakzanoon-ops/Emulation-Nint2/commit/13dda68655c4b6d8c66dda7baf19f39a89ba84aa) (ADR/ADRP + flags); [c83cc965](https://github.com/cheshmakzanoon-ops/Emulation-Nint2/commit/c83cc96557b9a7fa63766436d6ec44913904bd90) (synthetic guest runtime), followed by CLI/fixture/docs commit.
+
+**Still missing:** real Horizon SVC numbers, IPC and service behavior, scheduler, kernel, GPU, JIT and hardware evidence. The synthetic interface is not a substitute for native Switch 2 behavior. No Windows GitHub Actions results were verified at the time of this milestone.

@@ -3,12 +3,15 @@
 #include <iostream>
 #include <vector>
 #include "nint2/elf.hpp"
+#include "nint2/session.hpp"
 #include <string_view>
 #include "nint2/cpu.hpp"
 #include "nint2/memory.hpp"
 
 int main(int argc, char** argv) {
-    if (argc == 3 && std::string_view(argv[1]) == "--run-elf") {
+    if (argc == 3 && (std::string_view(argv[1]) == "--run-elf" ||
+                      std::string_view(argv[1]) == "--run-synthetic")) {
+        const bool synthetic = std::string_view(argv[1]) == "--run-synthetic";
         std::ifstream file(argv[2], std::ios::binary | std::ios::ate);
         if (!file || file.tellg() <= 0 || file.tellg() > 32 * 1024 * 1024) {
             std::cerr << "Cannot read ELF (missing/empty/over 32 MiB)\n";
@@ -33,6 +36,16 @@ int main(int argc, char** argv) {
             std::cerr << "Cannot map guest stack\n";
             return 1;
         }
+        if (synthetic) {
+            nint2::SyntheticSession guest(memory, loaded.entry, stack_start + 0x10000);
+            const auto outcome = guest.Run(1000000);
+            std::cout << guest.Stdout();
+            std::cerr << guest.Stderr();
+            std::cerr << "Synthetic guest: stop=" << static_cast<int>(outcome.stop)
+                      << " exit=" << outcome.exit_code << " steps=" << outcome.steps
+                      << " pc=0x" << std::hex << guest.Context().pc << '\n';
+            return outcome.stop == nint2::SessionStop::Exited && outcome.exit_code == 0 ? 0 : 1;
+        }
         nint2::CpuInterpreter cpu;
         cpu.context.pc = loaded.entry;
         cpu.context.sp = stack_start + 0x10000;
@@ -43,12 +56,12 @@ int main(int argc, char** argv) {
         return execution.stop == nint2::CpuStop::Breakpoint ? 0 : 1;
     }
     if (argc != 2) {
-        std::cerr << "Usage: nint2 --help | --version | --smoke | --cpu-smoke | --run-elf <original.elf>\n";
+        std::cerr << "Usage: nint2 --help | --version | --smoke | --cpu-smoke | --run-elf <original.elf> | --run-synthetic <original.elf>\n";
         return 2;
     }
     const std::string_view option = argv[1];
     if (option == "--help") {
-        std::cout << "nint2 research runtime: --help | --version | --smoke | --cpu-smoke | --run-elf <original.elf>\n"
+        std::cout << "nint2 research runtime: --help | --version | --smoke | --cpu-smoke | --run-elf <original.elf> | --run-synthetic <original.elf>\n"
                      "Original AArch64 tests only; no Switch 2 game/firmware support.\n";
         return 0;
     }

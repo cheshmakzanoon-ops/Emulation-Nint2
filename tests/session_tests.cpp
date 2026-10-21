@@ -2,6 +2,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <fstream>
+#include <string_view>
 #include <iostream>
 #include <vector>
 #include "nint2/elf.hpp"
@@ -54,7 +56,15 @@ std::vector<std::uint8_t> AuthoredHelloElf() {
 }
 } // namespace
 
-int main() {
+int main(int argc, char** argv) {
+    if (argc == 3 && std::string_view(argv[1]) == "--emit-elf") {
+        const auto image = AuthoredHelloElf();
+        std::ofstream out(argv[2], std::ios::binary | std::ios::trunc);
+        if (!out.write(reinterpret_cast<const char*>(image.data()),
+                       static_cast<std::streamsize>(image.size()))) return EXIT_FAILURE;
+        return EXIT_SUCCESS;
+    }
+    if (argc != 1) return EXIT_FAILURE;
     using nint2::Access;
     using nint2::CpuStop;
     using nint2::ElfError;

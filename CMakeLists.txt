@@ -28,4 +28,11 @@ if(NINT2_BUILD_TESTS)
   add_executable(nint2_session_tests tests/session_tests.cpp)
   target_link_libraries(nint2_session_tests PRIVATE nint2_core)
   add_test(NAME original_guest_session COMMAND nint2_session_tests)
+  add_test(NAME generate_guest_elf COMMAND nint2_session_tests --emit-elf
+           "${CMAKE_CURRENT_BINARY_DIR}/synthetic_hello.elf")
+  set_tests_properties(generate_guest_elf PROPERTIES FIXTURES_SETUP authored_elf)
+  add_test(NAME cli_guest_elf COMMAND nint2 --run-synthetic
+           "${CMAKE_CURRENT_BINARY_DIR}/synthetic_hello.elf")
+  set_tests_properties(cli_guest_elf PROPERTIES
+      FIXTURES_REQUIRED authored_elf PASS_REGULAR_EXPRESSION "Hello from AArch64!")
 endif()

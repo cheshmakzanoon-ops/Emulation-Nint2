@@ -6,6 +6,12 @@
 
 The reference interpreter executes original ARM64 instructions with guest page permissions. A bounded static ELF64 loader maps PT_LOAD segments. Original program: MOVZ W0,#7; ADD W0,W0,#35; BRK #0. The result is x0=42 after 3 instructions.
 
+## Breakthrough: an original guest program writes output and exits
+
+An independently authored AArch64 ELF can now call a **synthetic test-only** service interface, write a message from guest memory, and exit. The original ARM64 assembly is in `tests/fixtures/original_hello.s`. This is a CPU + ELF loader + sandboxed guest-service integration test, **not** Nintendo Switch 2 Horizon emulation.
+
+Build and test with CTest; it now generates an original ELF fixture into the build folder and executes it using `--run-synthetic`. See [synthetic guest ABI](docs/SYNTHETIC_ABI.md) for the exact documented calling convention and limits.
+
 ## Build and test
 
 Requires CMake 3.24+ and C++20 (MSVC on Windows; GCC or Clang on Linux). No device firmware, game files or special dependencies.
@@ -28,6 +34,17 @@ clang --target=aarch64-none-elf -nostdlib -fuse-ld=lld -Wl,-Ttext=0x10000 -Wl,--
 
 Expected: Original ELF execution: stop=1 x0=42 steps=3 pc=0x10008.
 On Windows MSVC builds, run build/Debug/nint2.exe instead of ./build/nint2.
+
+## Original synthetic guest ELF demo
+
+With optional Clang/LLD cross-compilation:
+
+~~~sh
+clang --target=aarch64-none-elf -nostdlib -fuse-ld=lld -Wl,-Ttext=0x10000 -Wl,--build-id=none tests/fixtures/original_hello.s -o original_hello.elf
+./build/nint2 --run-synthetic original_hello.elf
+~~~
+
+Expected stdout: `Hello from AArch64!` followed by a newline. The CLI reports `exit=0 steps=8` on stderr. Windows MSVC builds run the equivalent executable from `build/Debug/nint2.exe`.
 
 ## Limitations and development
 
