@@ -70,6 +70,12 @@ workflow is queued. Do not confuse this with native Nintendo compatibility.
 - **Hermetic file images (SVC 10–17):** host-mounted immutable assets have
   bounded paths, per-process handles, stable sorted enumeration, deterministic
   FNV-1a digests, independent seek offsets and atomic guest-memory reads.
+- **Guest heap (SVC 18–21):** sparse, private and deterministically placed
+  virtual pages with W^X checked protection, safe metadata queries, explicit
+  Free and process-exit/fault cleanup. Original ARM64 heap and heap+asset
+  programs exercise these end-to-end.
+- **Packet-size queue waits:** optional Send x3 size prevents wake-ups before
+  enough bytes for the complete message are available.
 - **New ELF-to-asset CLI:** the host explicitly imports a single file and
   a source-controlled ARM64 guest reads it using its virtual descriptor.
   No file opened by guest code maps to the host filesystem.

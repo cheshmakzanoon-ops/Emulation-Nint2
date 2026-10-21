@@ -358,3 +358,36 @@ unknown. No game compatibility, firmware boot or DRM bypass is implied.
 **Next gates:** compile and run all tests under Linux/Windows; verify sanitizer
 and independent assembly parity; confirm exact asset CLI stdout and negative
 returns; address any regression before claiming the new milestone verified.
+
+## 2026-10-21 follow-on milestone: original ARM64 heap and packet-size waits
+
+Published to main in this continuation:
+
+- `33d7bd6`: independent original 46-instruction ARM64 heap program as ELF,
+  with a CTest harness covering map, W^X, alias conflicts, metadata writes,
+  process isolation and freeing. Existing independent contributor's
+  `20c807a`, `897317f`, `672a3ed` arena/heap work is retained.
+- `7094c21`: correct QueueWait readiness for exact packet lengths when
+  queued bytes are nearly exhausted but message slots remain available.
+- `5abd3a7`: use optional SVC 9 x3 requested Send size and preserve it
+  across a suspended guest's wake-up; add invalid-size and retry tests.
+- `69927a5`: release guest-owned VM regions on Exit or scheduler-terminal
+  CPU failure, even if the guest omitted GuestFree; cover cleanup regressions.
+
+**Actually executed:** Clang AArch64 assembler, LLD and LLVM objdump on
+`original_vm_guest.s`, producing 46 instruction words and an ELF64 binary.
+The recorded words match the authored test fixture. Earlier original waiting
+and asset programs were also assembled, and their instruction vectors
+inspected locally.
+
+**Not executed on these new commits:** a full CMake build, full CTest,
+ASan/UBSan, Windows and CI source-assembler checks. The local execution
+container cannot clone GitHub because DNS resolution failed. Repository
+changes were pushed through the connected GitHub API. GitHub Actions
+continued to report **queued** runs when checked; no new pass count is
+claimed. Historical 36/36 CTest results apply only to earlier commits.
+
+**Required next validation:** build current main under Linux and Windows,
+execute every CTest, rerun original guest source parity and compiled-C checks,
+then run sanitizer tests. The current features are independent original
+AArch64 test programs, **not** a console/firmware/game emulator.

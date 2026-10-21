@@ -144,3 +144,18 @@ through `GuestMemory`. No guest filename can access the host filesystem.
 The explicit CLI import is a host operation, not a guest path mapping.
 A full SandboxVfs compatible with any console service interface is still
 planned. New features are implemented but remote CI remains pending.
+
+## ADR-009: private guest heaps and retirement of all process resources
+
+The `vm::GuestArena` owns page-aligned guest regions independently of
+host-provisioned ELF/stack mappings. GuestAllocate/Free/Protect/Query operate
+only on those private regions; W^X is checked across aliases and query
+output uses transactional guest writes. There is no native host pointer
+passed into the guest, shared heap or device-memory model.
+
+SyntheticSession::RetireHandles now retires queue endpoints, closes asset
+descriptors, and calls `GuestArena::ReleaseAll`. Synthetic Exit and
+SyntheticScheduler terminal faults use the same cleanup. A standalone fault
+may still be inspected before explicit retirement. Optional QueueWait x3
+can reserve an entire packet's byte length; wake-ups are conditional on
+both remaining queue bytes and a free message slot.

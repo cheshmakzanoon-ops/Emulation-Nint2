@@ -331,3 +331,48 @@ standalone session stopped by a CPU exception is still inspectable until it
 is explicitly retired or destroyed. Tests cover both a guest that exits
 without Free and a faulting guest retired by the scheduler.
 
+
+## Extension: deterministic guest heap arena (pending full CI)
+
+Synthetic services **18–21** exercise guest address-space ownership and
+permissions through `vm::GuestArena`; none is a Nintendo SVC. Each independent
+`SyntheticSession` owns an arena from `0x10000000` through `0x1fffffff`
+with deterministic lowest-address first fit. Mappings are sparse, zeroed on
+first access, and cannot be writable and executable simultaneously, even
+across host-created aliases. One region is at most 16 MiB; the aggregate
+limit is 64 MiB and 128 regions.
+
+| x8 | Service | Inputs | x0 return |
+| --- | --- | --- | --- |
+| 18 | GuestAllocate | x0=page-multiple size, x1=permissions, x2=preferred virtual base (0=first fit) | base or negative error |
+| 19 | GuestFree | x0=exact region base | 0 or negative error |
+| 20 | GuestProtect | x0=exact base, x1=new permissions | 0 or negative error |
+| 21 | GuestQuery | x0=address within region, x1=writable 24-byte guest destination | 0 or negative error |
+
+Permissions: bit 1=Read, bit 2=Write, bit 4=Execute. Invalid W+X,
+size, alignment, and unknown region return -22 EINVAL; a collision returns
+-17 EEXIST; allocation limit/host mapping failures return -12 ENOMEM.
+Unreadable or unwritable guest metadata pointers return -14 EFAULT and do
+not produce partial records. GuestQuery writes three little-endian u64 fields:
+base, size, permission mask. Free and subsequent allocation produce fresh
+zero-backed pages and do not mutate host-owned pages outside the arena.
+
+A synthetic Exit releases all guest-arena mappings as well as queue endpoints
+and asset descriptors, including regions the guest forgot to Free. When the
+cooperative scheduler handles a terminal CPU fault, it performs the same
+idempotent cleanup. Standalone faulted sessions retain state for diagnostics
+until explicitly retired or destroyed.
+
+[`original_vm_guest.s`](../tests/fixtures/original_vm_guest.s) uses
+GuestAllocate, STRB, synthetic Write, GuestProtect, GuestQuery, GuestFree and
+Exit. The 46 independently assembled instructions are recorded in
+[`vm_guest_tests.cpp`](../tests/vm_guest_tests.cpp), with source parity
+checked in the CI assembler verifier. It prints `VM!` and a newline. The
+fixture requires x20 preloaded with a host-authorized writable query buffer,
+so use the test harness rather than the generic CLI.
+
+[`original_heap_asset.s`](../tests/fixtures/original_heap_asset.s)
+is another independently authored fixture that allocates its own guest
+buffer, opens a sealed immutable asset, reads it, prints it, closes the
+descriptor and frees the memory. The resources and service numbers are
+original test contracts, **not** Horizon ABI or proof of console behavior.
