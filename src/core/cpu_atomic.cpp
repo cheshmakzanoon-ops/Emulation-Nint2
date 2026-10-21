@@ -36,6 +36,9 @@ std::optional<CpuResult> CpuInterpreter::StepAtomic(GuestMemory& memory,
         }
         return done();
     }
+    // LSE is architecturally disjoint from the older exclusive encodings,
+    // but shares their 0x08 top-level opcode group.
+    if (const auto lse = StepLse(memory, op)) return *lse;
     // LDXR/LDAXR/STXR/STLXR byte, halfword, W and X forms. Reject pair,
     // acquire/release single-register and LSE opcode families for now.
     if ((op & 0x3f000000U) != 0x08000000U)
