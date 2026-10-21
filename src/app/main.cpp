@@ -1,21 +1,59 @@
+#include <cstdint>
+#include <fstream>
 #include <iostream>
+#include <vector>
+#include "nint2/elf.hpp"
 #include <string_view>
 #include "nint2/cpu.hpp"
 #include "nint2/memory.hpp"
 
 int main(int argc, char** argv) {
+    if (argc == 3 && std::string_view(argv[1]) == "--run-elf") {
+        std::ifstream file(argv[2], std::ios::binary | std::ios::ate);
+        if (!file || file.tellg() <= 0 || file.tellg() > 32 * 1024 * 1024) {
+            std::cerr << "Cannot read ELF (missing/empty/over 32 MiB)\n";
+            return 2;
+        }
+        const auto size = static_cast<std::size_t>(file.tellg());
+        std::vector<std::uint8_t> bytes(size);
+        file.seekg(0);
+        if (!file.read(reinterpret_cast<char*>(bytes.data()),static_cast<std::streamsize>(size))) {
+            std::cerr << "Failed to read complete ELF file\n";
+            return 2;
+        }
+        nint2::GuestMemory memory(0x40000000); // bounded 1 GiB guest virtual address space
+        const auto loaded = nint2::LoadElf64(bytes,memory);
+        if (loaded.error != nint2::ElfError::None) {
+            std::cerr << "ELF rejected: " << nint2::ElfErrorName(loaded.error) << '\n';
+            return 1;
+        }
+        constexpr std::uint64_t stack_start = 0x3fff0000;
+        if (!memory.Map(stack_start, 0x10000,
+                        nint2::Access::Read | nint2::Access::Write)) {
+            std::cerr << "Cannot map guest stack\n";
+            return 1;
+        }
+        nint2::CpuInterpreter cpu;
+        cpu.context.pc = loaded.entry;
+        cpu.context.sp = stack_start + 0x10000;
+        const auto execution = cpu.Run(memory, 1000000);
+        std::cout << "Original ELF execution: stop=" << static_cast<int>(execution.stop)
+                  << " x0=" << cpu.context.x[0] << " steps=" << execution.steps
+                  << " pc=0x" << std::hex << cpu.context.pc << '\n';
+        return execution.stop == nint2::CpuStop::Breakpoint ? 0 : 1;
+    }
     if (argc != 2) {
-        std::cerr << "Usage: nint2 --help | --version | --smoke | --cpu-smoke\n";
+        std::cerr << "Usage: nint2 --help | --version | --smoke | --cpu-smoke | --run-elf <original.elf>\n";
         return 2;
     }
     const std::string_view option = argv[1];
     if (option == "--help") {
-        std::cout << "nint2 research runtime: --help | --version | --smoke | --cpu-smoke\n"
+        std::cout << "nint2 research runtime: --help | --version | --smoke | --cpu-smoke | --run-elf <original.elf>\n"
                      "Original AArch64 tests only; no Switch 2 game/firmware support.\n";
         return 0;
     }
     if (option == "--version") {
-        std::cout << "nint2 0.1.0 (experimental interpreter)\n";
+        std::cout << "nint2 0.1.0 (experimental ELF64/AArch64 interpreter)\n";
         return 0;
     }
     if (option == "--smoke") {

@@ -1,16 +1,14 @@
 # Emulation-Nint2
 
-**Experimental independent AArch64 user-mode emulation research project targeting Nintendo Switch 2-compatible applications in the long term.** It is **not** capable of running Nintendo Switch 2 firmware or games.
+**Independent experimental AArch64 user-mode emulation project researching future Nintendo Switch 2 application compatibility. It cannot run Nintendo games or firmware.**
 
-## Current executable milestone
+## Working ELF64/AArch64 execution milestone
 
-The project includes a portable C++20 sparse-page guest-memory layer and an original reference AArch64 interpreter. The interpreter supports a narrow subset of integer instructions, branches and 8–64-bit loads/stores. It executes an original machine-code smoke test that computes **7 + 35 = 42**, then stops at a BRK instruction.
+The reference interpreter executes original ARM64 instructions with guest page permissions. A bounded static ELF64 loader maps PT_LOAD segments. Original program: MOVZ W0,#7; ADD W0,W0,#35; BRK #0. The result is x0=42 after 3 instructions.
 
-This is **CPU proof of execution**, not game or Horizon compatibility. The interpreter deliberately faults on unsupported instructions, unexecutable pages and invalid memory.
+## Build and test
 
-## Build and verify
-
-Requires CMake >=3.24 and C++20 (MSVC/Clang on Windows; GCC/Clang on Linux). No firmware, console images, keys or extra runtime dependencies.
+Requires CMake 3.24+ and C++20 (MSVC on Windows; GCC or Clang on Linux). No device firmware, game files or special dependencies.
 
 ~~~sh
 git clone https://github.com/cheshmakzanoon-ops/Emulation-Nint2.git
@@ -21,21 +19,18 @@ ctest --test-dir build -C Debug --output-on-failure
 ./build/nint2 --cpu-smoke
 ~~~
 
-Windows Visual Studio builds generally run 'build/Debug/nint2.exe --cpu-smoke'.
+Optional: produce the independently authored AArch64 ELF with Clang+LLD:
 
-Expected output: 'AArch64 interpreter smoke passed: x0=42 steps=3'.
+~~~sh
+clang --target=aarch64-none-elf -nostdlib -fuse-ld=lld -Wl,-Ttext=0x10000 -Wl,--build-id=none tests/fixtures/original_42.s -o original_42.elf
+./build/nint2 --run-elf original_42.elf
+~~~
 
-## Documentation
+Expected: Original ELF execution: stop=1 x0=42 steps=3 pc=0x10008.
+On Windows MSVC builds, run build/Debug/nint2.exe instead of ./build/nint2.
 
-- [Master development plan — 61 phases](docs/MASTER_DEVELOPMENT_PLAN.md)
-- [Actual implementation and test status](docs/STATUS.md)
-- [Architecture decisions](docs/ARCHITECTURE.md)
-- [Hardware research methodology](docs/HARDWARE_RESEARCH.md)
-- [Provenance and rights](docs/PROVENANCE.md)
-- [Contributor/agent rules](AGENTS.md)
+## Limitations and development
 
-## Copyright and hardware claims
+No emulator of Nintendo proprietary formats or Horizon APIs, no JIT or GPU. Unsupported guest instructions and malformed executables are rejected explicitly. See the 61-phase plan in docs/MASTER_DEVELOPMENT_PLAN.md, current status in docs/STATUS.md, architecture in docs/ARCHITECTURE.md, provenance in docs/PROVENANCE.md, and guidelines in AGENTS.md.
 
-The repository contains original code and original assembly fixtures only. No Nintendo firmware, games, keys, protected dumps, SDK, DRM bypass procedures or copyrighted assets are included. Switch 2-specific reverse engineering requires lawfully obtained independent observations, documented uncertainty and reproducible evidence. No external libraries or prior emulator code have been imported.
-
-**Final project license is undecided.** The repository is not associated with Nintendo or NVIDIA.
+All included fixtures are original. No Nintendo firmware, games, keys, proprietary SDKs, assets or bypass methods are included. Independent project; not associated with Nintendo or NVIDIA. Final repo license pending.
