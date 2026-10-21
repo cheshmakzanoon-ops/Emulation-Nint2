@@ -88,6 +88,36 @@ std::optional<CpuResult> CpuInterpreter::StepExtended(GuestMemory& memory, std::
         return CpuResult{CpuStop::Running, 1, 0, op};
     };
 
+    if ((op & 0x1FE0FC00U) == 0x1A000000U) {
+        // ADC/ADCS/SBC/SBCS (and NGC/NGCS aliases). Guest C flag means
+        // carry for addition and *no borrow* for subtraction. In particular,
+        // a carry-in may generate an unsigned carry even when a+b did not.
+        const bool subtract = (op & (1U << 30)) != 0;
+        const bool set_flags = (op & (1U << 29)) != 0;
+        const bool carry_in = (context.nzcv & 2U) != 0;
+        const auto a = ReadReg(rn, wide);
+        const auto b = ReadReg((op >> 16) & 31U, wide);
+        const auto mask = wide ? UINT64_MAX : std::uint64_t{UINT32_MAX};
+        const auto sign = wide ? (std::uint64_t{1} << 63) : (std::uint64_t{1} << 31);
+        const auto borrow = carry_in ? std::uint64_t{0} : std::uint64_t{1};
+        const auto sum = a + b;
+        const auto value = (subtract ? (a - b - borrow)
+                                     : (sum + (carry_in ? 1U : 0U))) & mask;
+        if (set_flags) {
+            const bool carry_out = subtract
+                ? (carry_in ? a >= b : a > b)
+                : (wide ? (sum < a || (carry_in && sum == UINT64_MAX))
+                        : (sum + static_cast<unsigned>(carry_in) > UINT32_MAX));
+            const bool overflow = subtract
+                ? (((a ^ b) & (a ^ value) & sign) != 0)
+                : (((~(a ^ b)) & (a ^ value) & sign) != 0);
+            context.nzcv = static_cast<std::uint8_t>(
+                ((value & sign) ? 8 : 0) | (value == 0 ? 4 : 0) |
+                (carry_out ? 2 : 0) | (overflow ? 1 : 0));
+        }
+        WriteReg(rt, value, wide);
+        return done();
+    }
     if ((op & 0x1F800000U) == 0x12000000U) {
         // AND/ORR/EOR/ANDS (immediate), including MOV/TST aliases.
         const auto bitmask = DecodeLogicalImmediate(op, wide);
