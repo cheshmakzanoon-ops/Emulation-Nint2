@@ -53,8 +53,42 @@ This compiles and executes four original single-process C guests, the original
 assembly sender/receiver pair, and the compiled C request/reply pair. The normal
 build remains offline and requires no cross-compiler. RPC guest compilation
 uses `-O1 -mgeneral-regs-only`, consistent with the interpreter's current integer
-scope. Blocking waits, peer-close notification, JIT, graphics and native console
-interfaces remain future work.
+scope. The new optional synthetic QueueWait service and sealed asset runtime below are
+not yet verified by the queued GitHub Actions workflow. Native blocking kernel
+primitives, JIT, graphics and Switch 2 interfaces remain future work.
+
+## In-progress milestone: resumable IPC and sealed guest assets
+
+On October 21, 2026, the following implementation was **pushed to main**.
+Build and CTest results for these changes are not yet confirmed: the remote
+workflow is queued. Do not confuse this with native Nintendo compatibility.
+
+- **Cooperative queue waits (SVC 9):** a guest either observes readiness,
+  receives an explicit peer-closed result or suspends at its SVC. The scheduler
+  skips blocked processes and reports deterministic deadlock instead of spinning.
+  Final process exits retire queue endpoints without losing diagnostic handles.
+- **Hermetic file images (SVC 10–17):** host-mounted immutable assets have
+  bounded paths, per-process handles, stable sorted enumeration, deterministic
+  FNV-1a digests, independent seek offsets and atomic guest-memory reads.
+- **New ELF-to-asset CLI:** the host explicitly imports a single file and
+  a source-controlled ARM64 guest reads it using its virtual descriptor.
+  No file opened by guest code maps to the host filesystem.
+
+Build and run the source-authored example:
+
+```sh
+cmake -S . -B build -DNINT2_BUILD_TESTS=ON
+cmake --build build --parallel 4
+ctest --test-dir build --output-on-failure
+./build/nint2 --run-synthetic-asset build/original_asset_guest.elf \
+  /demo/message tests/fixtures/asset_message.txt
+```
+
+When these tests pass, the expected stdout is `Loaded from asset!` plus
+one newline. The ELF is produced by the `generate_original_asset_elf`
+CTest fixture. Optional independent assembly parity is checked by
+`tests/verify_assembler_fixtures.py`. Additional details are recorded
+in [SYNTHETIC_ABI.md](docs/SYNTHETIC_ABI.md).
 
 ## Working ELF64/AArch64 execution milestone
 

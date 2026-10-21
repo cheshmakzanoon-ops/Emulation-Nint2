@@ -234,3 +234,82 @@ service numbers or handle/IPC rights contracts. Optimized original C programs
 exercise the new instructions through the existing ELF loader and explicit
 synthetic Write/Exit calls. Local execution has been verified; remote CI
 results are tracked in STATUS.md.
+
+## Extension: cooperative QueueWait and explicit peer lifecycle (pending CI)
+
+Service **9 QueueWait** is *test-only*, not a Horizon OS syscall. It takes
+`x0=queue handle`, `x1=direction` (1=Send, 2=Receive) and `x2=mode`
+(0=poll, 1=cooperatively wait). A ready queue returns zero. Empty Receive or
+full Send returns -11 (EAGAIN) in polling mode. In waiting mode, an unready
+queue returns `SessionStop::Blocked`, leaves PC on SVC and requires no host
+thread. Re-running the same guest before queue state changes consumes **zero
+additional instructions**. A scheduler skips blocked guests and returns
+`SchedulerStop::Deadlock` if no runnable guest remains; this is resumable
+after an explicit host or peer state change.
+
+When the last opposite-direction endpoint retires, QueueWait returns -32
+(EPIPE), except that previously buffered data stays readable until drained.
+Handle close, host-controlled process retirement and handle-table destruction
+decrement the corresponding peer counts. Terminal sessions retain their
+handle count for diagnostics, but their endpoints are no longer active. Queue
+Send and Receive (services 5/6) remain nonblocking and keep their original
+EAGAIN behavior, so existing independently compiled C guests are not silently
+changed. Unrecognized modes/rights return -22; insufficient rights return -13.
+This is a deliberately small cooperative research runtime with no preemption,
+futexes, OS threads, priority inheritance, or native console scheduler.
+
+Independent assembly sources `wait_sender.s` and `wait_receiver.s` exercise
+a true blocked ARM64 guest, interleaved peer Send/Receive, host wake-up,
+deadlock detection, full queues and peer departure.
+
+## Extension: sealed synthetic read-only asset namespace (pending CI)
+
+This original namespace is **not** the Switch 2 filesystem or a host-file
+passthrough. A host calls `SyntheticSession::MountAsset(path, bytes)` before
+running guest code. Each process has independent copied asset bytes and
+descriptors. The manifest seals at the first `Run()`. Filenames are rooted
+ASCII paths up to 128 bytes, using letters, digits, period, underscore and
+hyphen. Empty segments, `.`, `..`, double slash, trailing slash, host
+backslash and control bytes are rejected; entries are sorted lexically.
+
+Resource limits: 64 files, maximum 1 MiB per file, 16 MiB total, 128 open
+handles (starting at 0x10000, never reused), 4096 bytes per read, 1 TiB maximum
+virtual seek. All successful guest copies go through `GuestMemory::WriteBuffer`,
+which checks full destination permissions before changing guest memory.
+A failed Read leaves its per-descriptor file offset unchanged. Bytes are
+unmodified and each file has a deterministic FNV-1a 64 hash (not cryptographic).
+
+| x8 | Service | Input registers | x0 return |
+| --- | --- | --- | --- |
+| 10 | OpenAsset | x0=readable guest path ptr, x1=path length, x2=0 (read only) | file handle or negative error |
+| 11 | ReadAsset | x0=fd, x1=writable guest ptr, x2=bytes | bytes transferred (0 means EOF) or error |
+| 12 | SeekAsset | x0=fd, x1=signed two's-complement offset, x2=origin (0 begin, 1 current, 2 end) | new offset or error |
+| 13 | CloseAsset | x0=fd | 0 or error |
+| 14 | StatAsset | x0=path ptr, x1=length, x2=destination for 16 bytes | 0 or error |
+| 15 | EnumerateAsset | x0=sorted zero-based index, x1=record ptr, x2=buffer capacity | 1 for entry, 0 at end, or error |
+| 16 | ReadAtAsset | x0=fd, x1=buffer, x2=count, x3=offset | bytes read without changing cursor |
+| 17 | FstatAsset | x0=fd, x1=24-byte destination | 0 or error |
+
+`StatAsset` stores two little-endian u64 fields: file size, file digest.
+`FstatAsset` appends the independent descriptor cursor as a third u64.
+`EnumerateAsset` writes an all-or-nothing 152-byte record containing size
+(u64), hash (u64), path byte count (u64), and 128 bytes of zero-padded path
+data. EOF of the enumeration returns 0 without touching the guest pointer.
+Only x0=0 is a valid Open mode; zero-byte reads also succeed at EOF.
+
+Relevant negative results include -2 ENOENT, -9 EBADF, -14 EFAULT,
+-22 EINVAL, -24 EMFILE, and -90 EMSGSIZE. No service reads, creates, modifies
+or enumerates host files by guest-requested paths. In CLI mode only the host
+explicitly provides a single input file:
+
+```sh
+./build/nint2 --run-synthetic-asset build/original_asset_guest.elf \
+  /demo/message tests/fixtures/asset_message.txt
+```
+
+This specific source-controlled guest expects a private writable guest
+buffer in x20, provisioned by the CLI at 0x3fff0000, and prints
+`Loaded from asset!` before exiting zero. Other original applications must
+define their own bootstrap convention. The architecture provides no general
+native filesystem ABI, permissions database, symlinks, host path mapping,
+storage persistence, compressed archives or Nintendo content loader.

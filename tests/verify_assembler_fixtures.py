@@ -24,6 +24,9 @@ FIXTURES = [
     ("original_carry.s", "cpu_carry_tests.cpp", "code", 10),
     ("original_extract.s", "cpu_extract_tests.cpp", "words", 9),
     ("original_sp_logical.s", "cpu_sp_logical_tests.cpp", "words", 17),
+    ("wait_sender.s", "queue_wait_tests.cpp", "kSender", 20),
+    ("wait_receiver.s", "queue_wait_tests.cpp", "kReceiver", 25),
+    ("original_asset_guest.s", "asset_guest_tests.cpp", "kWords", 34),
 ]
 
 def host_words(path: Path, name: str, count: int) -> list[int]:

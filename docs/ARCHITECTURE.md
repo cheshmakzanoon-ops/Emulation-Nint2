@@ -127,3 +127,20 @@ bounded static ELF fixtures, not dynamic linking or Nintendo executable
 containers. There is no implemented renderer, audio or input stack. Current
 CLI modes execute original ELF/CPU/SVC tests, including compiled C IPC;
 these results do not establish native Switch 2 software compatibility.
+
+## ADR-008: observable cooperative liveness and hermetic asset IO
+
+The synthetic reference runtime now has queue peer counts, a test-only
+QueueWait service, explicit `SessionStop::Blocked`, resumable scheduler
+deadlock reporting, and endpoint retirement on process exit. This is separate
+from future Horizon thread scheduling and native synchronization objects.
+Existing QueueSend/QueueReceive retain their nonblocking behavior.
+
+A separate `assets::AssetStore` supports host-provisioned **immutable**
+copies of original fixture resources in a sealed, per-process namespace.
+File handles use a disjoint numeric range from queue handles; path parsing
+is ASCII-only and rejects traversal, and all guest output buffers are validated
+through `GuestMemory`. No guest filename can access the host filesystem.
+The explicit CLI import is a host operation, not a guest path mapping.
+A full SandboxVfs compatible with any console service interface is still
+planned. New features are implemented but remote CI remains pending.

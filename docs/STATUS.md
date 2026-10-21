@@ -322,3 +322,39 @@ pending; no remote success is inferred from these local runs. Queue calls remain
 nonblocking; there is no peer-close
 notification, blocking wait or deadlock detector. This is an original synthetic
 runtime milestone, with no JIT, renderer, Horizon ABI, firmware or game support.
+
+## 2026-10-21 continuation: queue liveness and read-only guest assets
+
+**Published commits on main:**
+
+- `7b4425d` — capability endpoint reference counts, pollable readiness,
+  peer-closure detection, deterministic retirement; new kernel tests.
+- `682133e` — SVC 9 QueueWait, scheduler blocked-state tracking and
+  deadlock result, new original sender/receiver programs and tests.
+- `97f2efe` — correct a terminal-session assertion in the new test.
+- `c9772f0`, `9d9351f` — bounded immutable asset store, descriptor cursor,
+  seeking, hash/manifest accounting and registered CTest.
+- `37d0176` — synthetic SVC 10–17 with checked guest pointers,
+  atomic destination writes and per-session hermetic namespace.
+- `997b51c` — ARM64 ELF integration and negative regression corpus.
+- `45cc299` — explicit `--run-synthetic-asset` CLI, exact-output test
+  and corrected ELF test guest virtual memory bounds.
+
+**Validation limits:** three independently written original AArch64 assembly
+programs were assembled locally with Clang 17 and disassembled with
+`llvm-objdump`: the wait sender (20 words), wait receiver (25 words), and
+read-only asset guest (34 words). The embedded word arrays were authored from
+that output. A new 12-mapping source-parity CI check now includes them. The
+host CMake/CTest, sanitizer, Windows, and new CLI tests have **not** been
+executed in this continuation environment. GitHub Actions was still queuing
+earlier runs when last inspected; no remote pass has been claimed.
+
+**Functional scope:** original test-only ARM64 programs now have a designed
+path to cooperative queue waiting, explicit peer departure, deterministic
+deadlock reporting and file reads from an immutable host-provisioned manifest.
+The binary-compatible, native console versions of these mechanisms are
+unknown. No game compatibility, firmware boot or DRM bypass is implied.
+
+**Next gates:** compile and run all tests under Linux/Windows; verify sanitizer
+and independent assembly parity; confirm exact asset CLI stdout and negative
+returns; address any regression before claiming the new milestone verified.
