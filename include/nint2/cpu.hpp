@@ -49,6 +49,7 @@ private:
     [[nodiscard]] std::optional<CpuResult> StepAtomic(GuestMemory& memory, std::uint32_t instruction);
     [[nodiscard]] std::optional<CpuResult> StepLse(GuestMemory& memory, std::uint32_t instruction);
     [[nodiscard]] std::optional<CpuResult> StepSystem(std::uint32_t instruction);
+    [[nodiscard]] std::optional<CpuResult> StepCrc(std::uint32_t instruction);
     [[nodiscard]] std::optional<CpuResult> StepPair(GuestMemory& memory, std::uint32_t instruction);
     struct ExclusiveReservation {
         bool valid{};
