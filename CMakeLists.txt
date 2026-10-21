@@ -40,6 +40,17 @@ if(NINT2_BUILD_TESTS)
   add_executable(nint2_compiled_c_tests tests/compiled_c_guest_tests.cpp)
   target_link_libraries(nint2_compiled_c_tests PRIVATE nint2_core)
   add_test(NAME original_compiled_c_guest COMMAND nint2_compiled_c_tests)
+  add_executable(nint2_compiled_ipc_tests tests/compiled_ipc_guest_tests.cpp)
+  target_link_libraries(nint2_compiled_ipc_tests PRIVATE nint2_core)
+  add_test(NAME original_compiled_c_ipc COMMAND nint2_compiled_ipc_tests)
+  add_test(NAME generate_compiled_ipc_elf COMMAND nint2_compiled_ipc_tests --emit-elf
+           "${CMAKE_CURRENT_BINARY_DIR}/compiled_ipc_guest.elf")
+  set_tests_properties(generate_compiled_ipc_elf PROPERTIES FIXTURES_SETUP authored_compiled_ipc_elf)
+  add_test(NAME cli_compiled_ipc_guest COMMAND nint2 --run-synthetic
+           "${CMAKE_CURRENT_BINARY_DIR}/compiled_ipc_guest.elf")
+  set_tests_properties(cli_compiled_ipc_guest PROPERTIES
+      FIXTURES_REQUIRED authored_compiled_ipc_elf
+      PASS_REGULAR_EXPRESSION "C guest IPC verified!")
   add_test(NAME generate_compiled_c_elf COMMAND nint2_compiled_c_tests --emit-elf
            "${CMAKE_CURRENT_BINARY_DIR}/compiled_c_guest.elf")
   set_tests_properties(generate_compiled_c_elf PROPERTIES FIXTURES_SETUP authored_compiled_c_elf)
