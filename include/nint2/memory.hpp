@@ -53,6 +53,28 @@ public:
         std::uint64_t generation{};
     };
     enum class ExclusiveStore : std::uint8_t { Stored, ReservationLost, Fault };
+    struct ExclusivePairRead {
+        std::uint64_t first{}, second{};
+        std::uint64_t frame_id{}, generation{};
+    };
+    struct AtomicPairRead {
+        std::uint64_t first{}, second{};
+    };
+    // Pair sizes are 4+4 and 8+8 bytes. Pairs are naturally aligned and
+    // cannot cross a physical 4 KiB frame boundary.
+    [[nodiscard]] std::optional<ExclusivePairRead>
+    LoadExclusivePair(std::uint64_t address, unsigned element_bytes) const;
+    [[nodiscard]] ExclusiveStore StoreExclusivePair(
+        std::uint64_t address, unsigned element_bytes,
+        std::uint64_t first, std::uint64_t second,
+        std::uint64_t frame_id, std::uint64_t generation);
+    // CASP compares both original elements, updates both or neither, and
+    // reports their original values even when its comparison fails.
+    [[nodiscard]] std::optional<AtomicPairRead>
+    AtomicComparePair(std::uint64_t address, unsigned element_bytes,
+                      std::uint64_t expected_first, std::uint64_t expected_second,
+                      std::uint64_t desired_first, std::uint64_t desired_second);
+
     // Architecturally atomic LSE read/modify/write operations. All validations
     // and the memory mutation occur on the one deterministic host CPU thread.
     enum class AtomicOperation : std::uint8_t {
