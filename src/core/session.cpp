@@ -147,7 +147,7 @@ std::uint64_t SyntheticSession::HandleQueueDuplicate() {
 
 bool SyntheticSession::CanResume() const noexcept {
     if (!waiting_) return true;
-    const auto status = handles_.Status(wait_handle_, wait_direction_);
+    const auto status = handles_.Status(wait_handle_, wait_direction_, wait_bytes_);
     return status.error != kernel::Error::Empty && status.error != kernel::Error::Full;
 }
 
@@ -392,18 +392,23 @@ SessionResult SyntheticSession::Run(std::uint64_t max_steps) {
             std::uint32_t handle{};
             const auto raw_direction = cpu_.context.x[1];
             const auto mode = cpu_.context.x[2];
+            const auto required_bytes = cpu_.context.x[3];
             if (!DecodeHandle(cpu_.context.x[0], handle)) {
                 cpu_.context.x[0] = Error(9);
-            } else if ((raw_direction != 1 && raw_direction != 2) || mode > 1) {
+            } else if ((raw_direction != 1 && raw_direction != 2) || mode > 1 ||
+                       required_bytes > kernel::MessageQueue::kMaxMessage ||
+                       (raw_direction == 2 && required_bytes != 0)) {
                 cpu_.context.x[0] = Error(22);
             } else {
                 const auto direction = static_cast<kernel::Right>(raw_direction);
-                const auto status = handles_.Status(handle, direction);
+                const auto count = static_cast<std::size_t>(required_bytes);
+                const auto status = handles_.Status(handle, direction, count);
                 if (mode == 1 && (status.error == kernel::Error::Empty ||
                                   status.error == kernel::Error::Full)) {
                     waiting_ = true;
                     wait_handle_ = handle;
                     wait_direction_ = direction;
+                    wait_bytes_ = count;
                     return Outcome(SessionStop::Blocked, step.stop);
                 }
                 cpu_.context.x[0] = QueueError(status.error);

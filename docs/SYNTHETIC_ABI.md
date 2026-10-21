@@ -239,7 +239,12 @@ results are tracked in STATUS.md.
 
 Service **9 QueueWait** is *test-only*, not a Horizon OS syscall. It takes
 `x0=queue handle`, `x1=direction` (1=Send, 2=Receive) and `x2=mode`
-(0=poll, 1=cooperatively wait). A ready queue returns zero. Empty Receive or
+(0=poll, 1=cooperatively wait). Optional `x3` specifies the exact
+number of bytes to reserve for Send (0–4096). Receive requires `x3=0`.
+Passing more than 4096 bytes or a nonzero Receive length returns -22.
+Send readiness is only true when the queue has a free message slot **and**
+room for the complete requested packet; a byte-quota-only shortage blocks
+until sufficient bytes have been consumed. A ready queue returns zero. Empty Receive or
 full Send returns -11 (EAGAIN) in polling mode. In waiting mode, an unready
 queue returns `SessionStop::Blocked`, leaves PC on SVC and requires no host
 thread. Re-running the same guest before queue state changes consumes **zero

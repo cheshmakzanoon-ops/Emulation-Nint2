@@ -100,5 +100,6 @@ private:
     bool waiting_{};
     std::uint32_t wait_handle_{};
     kernel::Right wait_direction_{kernel::Right::None};
+    std::size_t wait_bytes_{}; // x3 requested size for blocked Send readiness
 };
 } // namespace nint2

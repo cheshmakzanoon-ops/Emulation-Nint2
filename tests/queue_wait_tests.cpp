@@ -226,6 +226,50 @@ int main() {
     REQUIRE(probe.Run(1).stop == SessionStop::StepLimit);
     REQUIRE(regs.x[0] == 0 && regs.pc == 0x1004);
 
+    // Byte-exact send waits: 64 queue slots remain available, but only one
+    // byte of the 64 KiB byte quota is free, so a two-byte Send must suspend.
+    GuestMemory exact_mem(0x10000);
+    REQUIRE(InstallSvc(exact_mem));
+    SyntheticSession exact_guest(exact_mem, 0x1000, 0x2000);
+    HandleTable exact_owner;
+    REQUIRE(exact_owner.CreateQueue(64).Ok());
+    const auto exact_fd = exact_guest.ImportQueue(exact_owner, 1, Right::Send);
+    REQUIRE(exact_fd.Ok());
+    auto quota = exact_owner.Get(1, Right::Send);
+    REQUIRE(quota != nullptr);
+    std::array<std::uint8_t, MessageQueue::kMaxMessage> large{};
+    for (unsigned i = 0; i < 15; ++i) REQUIRE(quota->Send(large).Ok());
+    std::array<std::uint8_t, MessageQueue::kMaxMessage - 1> nearly_full{};
+    REQUIRE(quota->Send(nearly_full).Ok());
+    REQUIRE(quota->Depth() == 16);
+    REQUIRE(quota->QueuedBytes() == MessageQueue::kMaxQueuedBytes - 1);
+    auto& x = exact_guest.Context();
+    auto query = [&](std::uint64_t direction, std::uint64_t mode,
+                     std::uint64_t length) {
+        x.pc = 0x1000;
+        x.x[0] = exact_fd.value; x.x[1] = direction;
+        x.x[2] = mode; x.x[3] = length; x.x[8] = 9;
+        return exact_guest.Run(1);
+    };
+    REQUIRE(query(1, 0, 1).stop == SessionStop::StepLimit);
+    REQUIRE(x.x[0] == 0);
+    REQUIRE(query(1, 0, 2).stop == SessionStop::StepLimit);
+    REQUIRE(x.x[0] == static_cast<std::uint64_t>(-11LL));
+    REQUIRE(query(1, 0, 4097).stop == SessionStop::StepLimit);
+    REQUIRE(x.x[0] == static_cast<std::uint64_t>(-22LL));
+    REQUIRE(query(2, 0, 1).stop == SessionStop::StepLimit);
+    REQUIRE(x.x[0] == static_cast<std::uint64_t>(-22LL));
+    REQUIRE(query(1, 1, 2).stop == SessionStop::Blocked);
+    REQUIRE(!exact_guest.CanResume() && x.pc == 0x1000);
+    const auto frozen_steps = exact_guest.TotalSteps();
+    REQUIRE(exact_guest.Run(32).stop == SessionStop::Blocked);
+    REQUIRE(exact_guest.TotalSteps() == frozen_steps);
+    REQUIRE(quota->Consume().value == MessageQueue::kMaxMessage);
+    REQUIRE(exact_guest.CanResume());
+    REQUIRE(exact_guest.Run(1).stop == SessionStop::StepLimit);
+    REQUIRE(x.x[0] == 0 && x.pc == 0x1004);
+    REQUIRE(exact_owner.Close(1).Ok());
+
     std::cout << "Original A64 blocking IPC, peer loss, deadlock and poll tests passed\n";
     return EXIT_SUCCESS;
 }
