@@ -65,8 +65,8 @@ int main() {
     CHECK(buffer[0] == 'e');
     CHECK(store.PeekAt(static_cast<std::uint32_t>(d1.value),
                        AssetStore::kMaxSeek + 1, buffer).error == Error::InvalidArgument);
-    CHECK(store.PeekAt(static_cast<std::uint32_t>(d1.value), 0,
-                       std::vector<std::uint8_t>(AssetStore::kMaxRead + 1)).error ==
+    std::vector<std::uint8_t> oversized_read(AssetStore::kMaxRead + 1);
+    CHECK(store.PeekAt(static_cast<std::uint32_t>(d1.value), 0, oversized_read).error ==
           Error::InvalidArgument);
     Info info{};
     CHECK(store.Stat("/z/data.txt", info) == Error::None);
