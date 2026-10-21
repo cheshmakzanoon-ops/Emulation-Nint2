@@ -82,3 +82,34 @@ checks are awaiting completed remote CI validation.
 
 These services and instruction tests are **not Horizon IPC**, native Nintendo
 software, measured Switch 2 behavior, or full AArch64 ISA emulation.
+
+## Host-only multi-session scheduling and queue authority (research extension)
+
+`SyntheticSession::GrantQueueTo(source_handle, recipient, rights)` and
+`kernel::HandleTable::GrantTo` allow a **host test controller** to copy a queue
+reference into another isolated guest's handle table. The original handle must
+have Duplicate right and may grant only a subset of its rights. An invalid,
+stale or nonduplicable source fails; a full recipient table fails without
+revoking the source. Recipients have independent, monotonically allocated handle
+IDs. Closing the source handle does not revoke independently granted handles.
+There is no guest-visible handle-transfer service and **no Horizon ABI claim**.
+
+`SyntheticScheduler` accepts at most 16 preconstructed `SyntheticSession`
+references and executes each in deterministic round-robin instruction quanta
+(default 1 instruction, configurable). A `Run` call has an aggregate instruction
+budget across all sessions; repeated calls preserve the next scheduled process
+and cumulative count. Guest faults only terminate that guest; the result reports
+number of successful exits and failures. Separate sessions own separate
+`GuestMemory` instances, CPU registers, virtual ticks and captured output;
+only explicitly granted queues share message storage. The caller owns session
+lifetimes and is responsible for granting capabilities.
+
+`tests/fixtures/original_sender.s` and
+`tests/fixtures/original_receiver.s` provide original source examples:
+CreateQueue, host Receive-only grant, send `PING!`, first empty Receive returning
+`-11`, retry, write received buffer, close producer handle and exit.
+`nint2_multi_guest_elf_tests` can construct and load original fixture ELFs
+without a cross-compiler, emit those ELFs into the build directory, and accept
+independently cross-linked sender/receiver ELF paths with `--run-pair`.
+All results remain subject to CI validation. This feature is not true guest
+thread preemption, native services, real console scheduling or a kernel port.

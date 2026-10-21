@@ -123,3 +123,38 @@ This test-only synthetic ABI does not establish Switch 2 game compatibility.
 No emulator of Nintendo proprietary formats or Horizon APIs, no JIT or GPU. Unsupported guest instructions and malformed executables are rejected explicitly. See the 61-phase plan in docs/MASTER_DEVELOPMENT_PLAN.md, current status in docs/STATUS.md, architecture in docs/ARCHITECTURE.md, provenance in docs/PROVENANCE.md, and guidelines in AGENTS.md.
 
 All included fixtures are original. No Nintendo firmware, games, keys, proprietary SDKs, assets or bypass methods are included. Independent project; not associated with Nintendo or NVIDIA. Final repo license pending.
+
+## Original two-guest ELF + deterministic scheduler experiment (2026-10-21)
+
+The experimental runtime now includes an **entirely synthetic** host-controlled
+round-robin scheduler (1–16 guest sessions) and receive-only capability sharing
+between separately instantiated guest address spaces. In addition to the
+direct-instruction regression test, two independently authored AArch64 assembly
+programs can be linked to two separate ELF64 executables, loaded by the actual
+ELF loader and run through the interpreter and synthetic IPC services.
+
+One guest creates a queue and sends `PING!`; the other first observes the
+synthetic nonblocking `-EAGAIN` result, retries using ARM64 branches, receives
+the message and writes it to captured stdout. The sender closes its handle
+without invalidating the receiver's attenuated capability. This is an **original
+test-only ABI**, not Horizon service emulation, a Switch 2 boot or game support.
+
+Run the default CTest suite to exercise the source-encoded pair without an
+AArch64 toolchain. To additionally check independently linked ELF binaries:
+
+~~~sh
+clang --target=aarch64-none-elf -nostdlib -fuse-ld=lld \
+  -Wl,-Ttext=0x10000 -Wl,--build-id=none -Wl,-z,max-page-size=4096 \
+  tests/fixtures/original_sender.s -o build/original_sender_linked.elf
+clang --target=aarch64-none-elf -nostdlib -fuse-ld=lld \
+  -Wl,-Ttext=0x10000 -Wl,--build-id=none -Wl,-z,max-page-size=4096 \
+  tests/fixtures/original_receiver.s -o build/original_receiver_linked.elf
+./build/nint2_multi_guest_elf_tests --run-pair \
+  build/original_sender_linked.elf build/original_receiver_linked.elf
+~~~
+
+This invocation is suitable for Linux single-config builds. On Windows use the
+corresponding Debug test executable and prebuilt in-tree ELF fixtures. Linux CI
+also attempts the independent cross-compiled pair after CTest. **At the time of
+these commits all newly triggered GitHub Actions runs remained queued, and the
+new runtime integration is not yet verified as passing on GitHub.**

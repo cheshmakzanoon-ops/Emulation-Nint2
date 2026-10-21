@@ -102,3 +102,22 @@ Implemented during this increment:
 **Remote CI baseline:** [f7b5c5a workflow](https://github.com/cheshmakzanoon-ops/Emulation-Nint2/actions/runs/39553809711) completed with Linux, Windows and sanitizer jobs all successful. **No full CMake/CTest run for the newly pushed increments has been verified yet.** The authoring environment could not clone github.com due to DNS restrictions; GitHub Actions for the new commits were queued at the last check. Do not claim successful new native guest execution, exact instruction counts, Windows compilation or sanitizers until CI completes.
 
 **Next gates:** inspect queued CI failures and fix any cross-platform regressions; independently compare linked C binary execution with the source-embedded regression ELF; then extend instruction conformance and deterministic synthetic scheduling. This project still has no Switch 2 Horizon ABI, device evidence, shader/GPU implementation or game compatibility.
+
+## 2026-10-21 continued development: logical decoding and two-ELF scheduling
+
+Five incremental code/CI commits pushed to `main`:
+
+1. [eea67d9](https://github.com/cheshmakzanoon-ops/Emulation-Nint2/commit/eea67d9db87e2be402df5e1be981e0c776360cd7): `cpu.cpp`, `cpu_extended.cpp`, original logical assembly fixture, logical instruction/regression test, CMake. Implemented AND/ORR/EOR/ANDS logical immediates (A64 replicated rotated bitmasks, invalid-encoding rejection, NZCV), plus inverted operand shifted-register BIC/ORN/EON/BICS.
+2. [da867ed](https://github.com/cheshmakzanoon-ops/Emulation-Nint2/commit/da867ed960632c8f046347223860f83e42cf4e85): `kernel.hpp`, `kernel.cpp`, kernel tests. Host-side `HandleTable::GrantTo` clones an attenuated shared-queue capability into a separate handle namespace only with Duplicate right; source handle remains intact; target exhaustion and stale handle checks.
+3. [736d6b6](https://github.com/cheshmakzanoon-ops/Emulation-Nint2/commit/736d6b6347b02e4e92dd1476f0b21c3babe39f00): `scheduler.hpp`, `scheduler.cpp`, `session.hpp/.cpp`, `scheduler_tests.cpp`, `original_sender.s`, `original_receiver.s`, CMake. Host-only deterministic resumable round-robin time slices with an aggregate instruction limit, per-guest faults/exits and two isolated original A64 guest processes exchanging a message.
+4. [16ca699](https://github.com/cheshmakzanoon-ops/Emulation-Nint2/commit/16ca6998298e94d7a91e02d1eb05cd1096ceb26f): `multi_guest_elf_tests.cpp`, CMake and Linux CI. Two independent ELF64 images enter through the real bounded ELF loader and exercise host capability grant, IPC retry, message transfer, process exit and memory isolation; tests can emit source-encoded ELF files and reload them or accept independently linked external ELF files.
+5. [f6ab691](https://github.com/cheshmakzanoon-ops/Emulation-Nint2/commit/f6ab691ce8768f4a063bb5e780ef7cf3a222c378): fix Bash continuation syntax in new CI cross-compilation step.
+
+**Checks performed, not overstated:**
+- Host environment had Clang 17, LLVM objdump and LLD; `original_logical_ops.s`, `original_sender.s`, and `original_receiver.s` were cross-assembled. Their produced ARM64 encodings were inspected with `llvm-objdump -d`.
+- Original sender and receiver were each independently linked with Clang/LLD, and `readelf -l` confirmed static AArch64 ELF executables with an executable PT_LOAD, 0x10000 entry and no dynamic linking.
+- A separate Python implementation decoded the eight new valid logical-immediate opcodes to their expected masks and rejected the three reserved test encodings.
+- CMake now registers **26 test entries**, including new logical, isolated-session scheduler, memory-loaded two-ELF and file-reloaded two-ELF tests.
+- **Not executed or verified yet:** a complete native CMake build and CTest suite for these new revisions, Linux/Windows Actions, ASan/UBSan tests, or actual success of the combined two-guest runtime. New GitHub Actions jobs were still **queued** at last inspection. Assembly/linker checks alone do not establish end-to-end execution.
+
+**Next gates:** inspect completed CI results; immediately fix compiler and logic regressions, then validate identical results across source-encoded and independent Clang-linked ELF guest pairs; expand compiler-optimized instruction coverage and test fuzzing. Native Nintendo Switch 2 kernel, GPU, Horizon service ABI and game boot are not implemented.
