@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # ASM source, host regression source, array, number of assembled words to check.
 # Some host regressions replace an ASM RET with a deliberately invalid opcode.
 FIXTURES = [
+    ("original_atom.s", "cpu_exclusive_tests.cpp", "kExclusiveWords", 22),
     ("original_logical_ops.s", "cpu_logical_tests.cpp", "code", 13),
     ("original_sender.s", "scheduler_tests.cpp", "sender_code", 13),
     ("original_sender.s", "multi_guest_elf_tests.cpp", "kSender", 13),
