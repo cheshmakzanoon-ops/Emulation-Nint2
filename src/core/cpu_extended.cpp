@@ -9,6 +9,37 @@ namespace {
 [[nodiscard]] constexpr std::uint64_t LowMask(unsigned bits) noexcept {
     return bits == 64 ? UINT64_MAX : (std::uint64_t{1} << bits) - 1;
 }
+[[nodiscard]] std::optional<std::uint64_t> DecodeLogicalImmediate(std::uint32_t op,
+                                                                  bool wide) noexcept {
+    // Arm A64 logical-immediate bitmask: a rotated run of ones replicated to
+    // 32 or 64 bits. Invalid all-ones and zero-element encodings must trap.
+    const unsigned n = (op >> 22) & 1U;
+    const unsigned immr = (op >> 16) & 63U;
+    const unsigned imms = (op >> 10) & 63U;
+    if (!wide && n != 0) return std::nullopt;
+    const unsigned lengths = (n << 6) | ((~imms) & 63U);
+    unsigned len = 0;
+    for (unsigned bit = 6; bit > 0; --bit) {
+        if (lengths & (1U << bit)) { len = bit; break; }
+    }
+    if (len == 0) return std::nullopt;
+    const unsigned element_bits = 1U << len;
+    const unsigned width = wide ? 64U : 32U;
+    if (element_bits > width) return std::nullopt;
+    const unsigned levels = element_bits - 1U;
+    const unsigned s = imms & levels;
+    const unsigned r = immr & levels;
+    if (s == levels) return std::nullopt;
+    const auto field = LowMask(s + 1);
+    // Both shift counts are guaranteed below 64, including r == 0.
+    const auto element = ((field >> r) |
+                          (field << ((element_bits - r) & levels))) &
+                         LowMask(element_bits);
+    std::uint64_t mask = 0;
+    for (unsigned offset = 0; offset < width; offset += element_bits)
+        mask |= element << offset;
+    return mask;
+}
 [[nodiscard]] constexpr std::int64_t SignedImmediate(std::uint64_t value, unsigned bits) noexcept {
     const auto mask = LowMask(bits);
     value &= mask;
@@ -55,6 +86,25 @@ std::optional<CpuResult> CpuInterpreter::StepExtended(GuestMemory& memory, std::
         return CpuResult{CpuStop::Running, 1, 0, op};
     };
 
+    if ((op & 0x1F800000U) == 0x12000000U) {
+        // AND/ORR/EOR/ANDS (immediate), including MOV/TST aliases.
+        const auto bitmask = DecodeLogicalImmediate(op, wide);
+        if (!bitmask) return illegal();
+        const auto a = ReadReg(rn, wide);
+        const unsigned operation = (op >> 29) & 3U;
+        const auto value = operation == 0 ? (a & *bitmask) :
+                           operation == 1 ? (a | *bitmask) :
+                           operation == 2 ? (a ^ *bitmask) : (a & *bitmask);
+        WriteReg(rt, value, wide);
+        if (operation == 3) {
+            const auto width_mask = wide ? UINT64_MAX : std::uint64_t{UINT32_MAX};
+            const auto sign = wide ? (std::uint64_t{1} << 63) : (std::uint64_t{1} << 31);
+            const auto truncated = value & width_mask;
+            context.nzcv = static_cast<std::uint8_t>(((truncated & sign) ? 8 : 0) |
+                                                     (truncated == 0 ? 4 : 0));
+        }
+        return done();
+    }
     if ((op & 0x7E000000U) == 0x36000000U) {
         // TBZ/TBNZ: 14-bit PC-relative bit-test branches, W/X per bit number.
         const unsigned bit = ((op >> 26) & 0x20U) | ((op >> 19) & 31U);

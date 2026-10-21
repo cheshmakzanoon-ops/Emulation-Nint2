@@ -124,15 +124,18 @@ CpuResult CpuInterpreter::Step(GuestMemory& memory) {
         if (flags) SetArithmeticFlags(a, b, value, wide, sub);
         WriteReg(rd, value, wide, !flags);
     } else if ((op & 0x1F200000U) == 0x0B000000U ||
-               (op & 0x1F200000U) == 0x0A000000U) {
+               (op & 0x1F000000U) == 0x0A000000U) {
         // Integer shifted-register arithmetic and logical ops, no extensions.
         const bool arithmetic = (op & 0x01000000U) != 0;
         const unsigned kind = (op >> 22) & 3;
         const unsigned shift = (op >> 10) & 63;
-        if (kind == 3 || (!wide && shift >= 32) || (!arithmetic && (op & (1U << 21))))
+        if (kind == 3 || (!wide && shift >= 32))
             return {CpuStop::UndefinedInstruction, 1, pc, op};
         const auto a = ReadReg(rn, wide);
-        const auto b = Shift(ReadReg((op >> 16) & 31, wide), shift, kind, wide);
+        const auto shifted = Shift(ReadReg((op >> 16) & 31, wide), shift, kind, wide);
+        // Logical (shifted register) uses bit 21 to invert operand two:
+        // BIC/ORN/EON/BICS are the inverted forms of AND/ORR/EOR/ANDS.
+        const auto b = (!arithmetic && (op & (1U << 21))) ? ~shifted : shifted;
         if (arithmetic) {
             const bool sub = (op & (1U << 30)) != 0;
             const bool flags = (op & (1U << 29)) != 0;
