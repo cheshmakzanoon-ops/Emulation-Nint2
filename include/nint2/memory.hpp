@@ -25,6 +25,7 @@ class GuestMemory final {
 public:
     static constexpr std::uint64_t kPageSize = 4096;
     explicit GuestMemory(std::uint64_t address_limit) noexcept;
+    [[nodiscard]] std::uint64_t AddressLimit() const noexcept { return address_limit_; }
     [[nodiscard]] bool Map(std::uint64_t base, std::uint64_t size, Access access);
     [[nodiscard]] bool Alias(std::uint64_t dst, std::uint64_t src, std::uint64_t size, Access access);
     [[nodiscard]] bool Unmap(std::uint64_t base, std::uint64_t size);
