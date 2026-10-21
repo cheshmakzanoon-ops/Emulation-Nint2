@@ -44,6 +44,21 @@ jobs:
           done
           ./build/nint2_multi_guest_elf_tests --run-pair \
             build/original_sender_linked.elf build/original_receiver_linked.elf
+      - name: Compile optimized freestanding AArch64 division guest
+        shell: bash
+        run: |
+          set -euo pipefail
+          clang --target=aarch64-none-elf -O1 -ffreestanding -fno-builtin \
+            -fno-stack-protector -fno-unwind-tables -nostdlib -fuse-ld=lld \
+            -Wl,-e,_start -Wl,-Ttext=0x10000 -Wl,-z,max-page-size=4096 \
+            -Wl,--build-id=none tests/fixtures/original_division_c.c \
+            -o build/original_division_c.elf
+      - name: Execute compiled AArch64 integer division guest
+        shell: bash
+        run: |
+          set -euo pipefail
+          output="$(./build/nint2 --run-synthetic build/original_division_c.elf)"
+          test "$output" = "AArch64 C divide verified!"
   windows:
     runs-on: windows-latest
     steps:
