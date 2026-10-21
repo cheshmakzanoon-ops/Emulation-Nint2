@@ -121,3 +121,25 @@ Five incremental code/CI commits pushed to `main`:
 - **Not executed or verified yet:** a complete native CMake build and CTest suite for these new revisions, Linux/Windows Actions, ASan/UBSan tests, or actual success of the combined two-guest runtime. New GitHub Actions jobs were still **queued** at last inspection. Assembly/linker checks alone do not establish end-to-end execution.
 
 **Next gates:** inspect completed CI results; immediately fix compiler and logic regressions, then validate identical results across source-encoded and independent Clang-linked ELF guest pairs; expand compiler-optimized instruction coverage and test fuzzing. Native Nintendo Switch 2 kernel, GPU, Horizon service ABI and game boot are not implemented.
+
+## 2026-10-21 continued interpreter and CI quality work
+
+All of the following commits were pushed to the existing **main** branch:
+
+- [93d1584](https://github.com/cheshmakzanoon-ops/Emulation-Nint2/commit/93d158448a92e9503cf35cdc6ce1d1c1d1630651): interpreter support and a new 1,024-set CTest oracle for UDIV/SDIV/LSLV/LSRV/ASRV/RORV with defined zero-divisor, INT_MIN / -1 and modulo-width shift behavior.
+- [b0ce0b2](https://github.com/cheshmakzanoon-ops/Emulation-Nint2/commit/b0ce0b26da0713b86c9ba7511df4ee7fbb5dd432): original optimized AArch64 C division test source and cross-compile/CLI execution gates in Linux CI.
+- [4e0f88e](https://github.com/cheshmakzanoon-ops/Emulation-Nint2/commit/4e0f88e318e99875f49026a28e00f58a2c2c87f8): ADC/ADCS/SBC/SBCS, NGC/NGCS aliases, NZCV update, carry/borrow edge handling and a 1,024-vector carry-chain CTest.
+- [95d1019](https://github.com/cheshmakzanoon-ops/Emulation-Nint2/commit/95d101989b4fc58e64fb8658230739f29a29a10d): EXTR and the ROR-immediate alias (including 32/64-bit forms), 2,048 randomized inputs per eight independently assembled A64 instructions, preserved flags and four invalid encodings.
+- [f60cd7a](https://github.com/cheshmakzanoon-ops/Emulation-Nint2/commit/f60cd7ad105c1b5ad21f098f911fdc27e9967956): original optimized C guest that requires actual ROR #17 execution, with Linux CI compilation and synthetic output/exit check.
+- [5938c7d](https://github.com/cheshmakzanoon-ops/Emulation-Nint2/commit/5938c7dc9248215f599a470c8ac64a4b5b02d67a): fix the disassembly grep expression in the new Linux CI step (independently checked against actual llvm-objdump output).
+- [966fa91](https://github.com/cheshmakzanoon-ops/Emulation-Nint2/commit/966fa917c538d8700e311b318f0931ef09068c7b): Python stdlib original-assembly parity verifier plus Linux CI execution. It tests eight source/vector pairings including the multi-ELF producer and consumer cases.
+
+**Verified locally in the authoring environment:**
+- Compiled original A64 assembly source with Clang 17, extracted machine words with llvm-objcopy, and matched all eight selected source / host test vector pairings.
+- Cross-compiled the optimized freestanding C division and ROR guests with Clang 17 / LLD and inspected the linked AArch64 ELF machine code. The latter emits `ror x8, x8, #0x11` after the source uses a volatile result to prevent an optimizing compiler from rewriting away the rotation.
+- Calculated the optimized C guest's expected division, signed-shift and rotation constants independently, and exhaustively checked small-width (4-bit and 8-bit) addition/subtraction carry and overflow truth tables.
+- A separate small C++20 oracle test evaluated 16,384 EXTR/ROR vector cases using original assembled instruction fields. This is **not** an execution of the complete repository's CMake or CTest suite.
+
+**Not yet verified:** running the full current C++ emulator and CTest suite in this environment (direct GitHub cloning failed due DNS/network restrictions), a successful Linux/Windows/ASan/UBSan GitHub Actions run for these commits, or independently linked guests running successfully through the complete committed C++ runtime. As of this note the latest GitHub Actions run is queued. Do not count registered CTest entries (29) as passed tests.
+
+**Next verification gate:** await actual Actions execution; inspect job logs and fix failures, then compare CI cross-linked guest traces against source-encoded fixture runs. These increments do not implement any native Nintendo Switch 2 firmware, Horizon services, proprietary container/format, GPU or game execution.

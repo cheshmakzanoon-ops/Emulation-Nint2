@@ -113,3 +113,13 @@ without a cross-compiler, emit those ELFs into the build directory, and accept
 independently cross-linked sender/receiver ELF paths with `--run-pair`.
 All results remain subject to CI validation. This feature is not true guest
 thread preemption, native services, real console scheduling or a kernel port.
+
+## New AArch64 original test-only integer instructions
+
+The ARM64 reference interpreter now includes ADC/ADCS/SBC/SBCS carry arithmetic,
+UDIV/SDIV, variable shifts and rotate, and EXTR/ROR immediate. These are
+ordinary ARM64 instruction semantics, not new synthetic SVC services or
+claims about Nintendo hardware. No changes were made to the eight guest test
+service numbers or handle/IPC rights contracts. Optimized original C programs
+exercise the new instructions through the existing ELF loader and explicit
+synthetic Write/Exit calls (Linux CI verification pending).

@@ -158,3 +158,30 @@ corresponding Debug test executable and prebuilt in-tree ELF fixtures. Linux CI
 also attempts the independent cross-compiled pair after CTest. **At the time of
 these commits all newly triggered GitHub Actions runs remained queued, and the
 new runtime integration is not yet verified as passing on GitHub.**
+
+## Integer ISA expansion and original-source parity (2026-10-21)
+
+New original interpreter operations: `UDIV`, `SDIV`, `LSLV`, `LSRV`,
+`ASRV`, `RORV`, `ADC`, `ADCS`, `SBC`, `SBCS`, `EXTR` and the
+`ROR` immediate alias, including 32/64-bit forms and defined divide-by-zero
+and carry/borrow edge cases. They use architectural bitmask and NZCV behavior;
+unallocated encodings must trap.
+
+`tests/cpu_divide_shift_tests.cpp`, `tests/cpu_carry_tests.cpp`, and
+`tests/cpu_extract_tests.cpp` provide independently authored assembly
+encodings, reserved-opcode cases and deterministic host-oracle vectors.
+Optimized freestanding C examples in `tests/fixtures/original_division_c.c`
+and `tests/fixtures/original_ror_c.c` are cross-compiled to AArch64 ELFs
+and executed by the normal `--run-synthetic` CLI **on Linux CI**; their
+successful execution is not claimed until the pending CI actually completes.
+
+The separate source/encoding check can run on a Linux machine with Clang,
+llvm-objcopy and Python 3, without any console software:
+
+~~~sh
+python3 tests/verify_assembler_fixtures.py
+~~~
+
+This compares eight checked-in host instruction vectors against original
+Clang-assembled AArch64 source fixtures. CMake currently registers 29
+CTest entries, pending completed validation for these new revisions.
