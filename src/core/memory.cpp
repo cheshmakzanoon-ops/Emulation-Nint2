@@ -127,6 +127,28 @@ bool GuestMemory::WriteLe(std::uint64_t address, std::uint64_t value, unsigned b
     return true;
 }
 
+bool GuestMemory::WriteBuffer(std::uint64_t address, std::span<const std::uint8_t> input) {
+    if (input.empty()) return true;
+    if (address >= address_limit_ || input.size() > address_limit_ - address) return false;
+    for (std::size_t i = 0; i < input.size(); ++i) {
+        const auto addr = address + i;
+        const auto it = pages_.find(addr / kPageSize);
+        if (it == pages_.end() || !HasAccess(it->second.access, Access::Write)) return false;
+    }
+    try {
+        for (std::size_t i = 0; i < input.size(); ++i) {
+            const auto addr = address + i;
+            auto& backing = pages_.at(addr / kPageSize).frame->data;
+            if (!backing) backing = std::make_unique<std::array<std::uint8_t, kPageSize>>();
+        }
+    } catch (const std::bad_alloc&) { return false; }
+    for (std::size_t i = 0; i < input.size(); ++i) {
+        const auto addr = address + i;
+        (*pages_.at(addr / kPageSize).frame->data)[addr % kPageSize] = input[i];
+    }
+    return true;
+}
+
 std::optional<std::uint8_t> GuestMemory::Read8(std::uint64_t a) const {
     if (const auto v = ReadLe(a, 1, Access::Read)) return static_cast<std::uint8_t>(*v);
     return std::nullopt;

@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <span>
 #include <unordered_map>
 
 namespace nint2 {
@@ -37,6 +38,9 @@ public:
     [[nodiscard]] bool Write16(std::uint64_t address, std::uint16_t value);
     [[nodiscard]] bool Write32(std::uint64_t address, std::uint32_t value);
     [[nodiscard]] bool Write64(std::uint64_t address, std::uint64_t value);
+    // All-or-nothing guest writes: validate all bytes and allocate all backing
+    // pages before modifying data. Allows IPC receive without partial copying.
+    [[nodiscard]] bool WriteBuffer(std::uint64_t address, std::span<const std::uint8_t> data);
 
 private:
     struct Frame {

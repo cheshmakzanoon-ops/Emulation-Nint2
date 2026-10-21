@@ -3,6 +3,7 @@
 #include <string>
 #include <string_view>
 #include "nint2/cpu.hpp"
+#include "nint2/kernel.hpp"
 
 namespace nint2 {
 
@@ -35,14 +36,21 @@ public:
     [[nodiscard]] const CpuContext& Context() const noexcept { return cpu_.context; }
     [[nodiscard]] std::string_view Stdout() const noexcept { return stdout_; }
     [[nodiscard]] std::string_view Stderr() const noexcept { return stderr_; }
+    [[nodiscard]] std::size_t HandleCount() const noexcept { return handles_.Size(); }
 
 private:
     [[nodiscard]] std::uint64_t HandleWrite();
+    [[nodiscard]] std::uint64_t HandleQueueCreate();
+    [[nodiscard]] std::uint64_t HandleQueueSend();
+    [[nodiscard]] std::uint64_t HandleQueueReceive();
+    [[nodiscard]] std::uint64_t HandleQueueClose();
+    [[nodiscard]] std::uint64_t HandleQueueDuplicate();
     [[nodiscard]] SessionResult Outcome(SessionStop stop, CpuStop cpu_stop,
                                         std::uint64_t fault = 0,
                                         std::uint64_t service = 0) const noexcept;
     GuestMemory& memory_;
     CpuInterpreter cpu_;
+    kernel::HandleTable handles_;
     std::string stdout_;
     std::string stderr_;
     std::uint64_t steps_{};
