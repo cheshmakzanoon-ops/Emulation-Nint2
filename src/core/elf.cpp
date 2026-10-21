@@ -237,14 +237,21 @@ ElfResult LoadElf64(std::span<const std::uint8_t> image, GuestMemory& memory,
                         !RelocatedAddress(bias,std::bit_cast<std::int64_t>(raw_addend),
                                           memory.AddressLimit(),value))
                         return fail(ElfError::InvalidRelocation);
-                    for (const auto& old : relocations)
-                        if (old.address == target)
-                            return fail(ElfError::InvalidRelocation);
                     relocations.push_back({target,value});
                 }
             }
         }
     }
+
+    // Hostile relocation tables must not cause quadratic duplicate scans.
+    // Reject duplicate writes before ANY guest mappings are changed.
+    std::sort(relocations.begin(), relocations.end(),
+              [](const Relocation& a, const Relocation& b) {
+                  return a.address < b.address;
+              });
+    for (std::size_t i = 1; i < relocations.size(); ++i)
+        if (relocations[i-1].address == relocations[i].address)
+            return fail(ElfError::InvalidRelocation);
 
     // Two-phase commit: load temporary RW, apply checked relocations, then
     // protect RX/RW/R pages. Nothing runs while temporary permissions exist.
