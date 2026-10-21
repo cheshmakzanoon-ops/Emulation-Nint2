@@ -1,6 +1,7 @@
 #pragma once
 #include <array>
 #include <cstdint>
+#include <optional>
 #include "nint2/memory.hpp"
 
 namespace nint2 {
@@ -39,6 +40,7 @@ public:
     [[nodiscard]] CpuResult Run(GuestMemory& memory, std::uint64_t max_steps);
 
 private:
+    [[nodiscard]] std::optional<CpuResult> StepExtended(GuestMemory& memory, std::uint32_t instruction);
     [[nodiscard]] std::uint64_t ReadReg(unsigned index, bool wide, bool use_sp = false) const;
     void WriteReg(unsigned index, std::uint64_t value, bool wide, bool use_sp = false);
     void SetArithmeticFlags(std::uint64_t a, std::uint64_t b, std::uint64_t result,

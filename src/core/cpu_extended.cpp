@@ -1,0 +1,216 @@
+#include "nint2/cpu.hpp"
+#include <array>
+#include <cstdint>
+#include <optional>
+#include <span>
+
+namespace nint2 {
+namespace {
+[[nodiscard]] constexpr std::uint64_t LowMask(unsigned bits) noexcept {
+    return bits == 64 ? UINT64_MAX : (std::uint64_t{1} << bits) - 1;
+}
+[[nodiscard]] constexpr std::int64_t SignedImmediate(std::uint64_t value, unsigned bits) noexcept {
+    const auto mask = LowMask(bits);
+    value &= mask;
+    if (value & (std::uint64_t{1} << (bits - 1)))
+        return -static_cast<std::int64_t>((~value & mask) + 1);
+    return static_cast<std::int64_t>(value);
+}
+[[nodiscard]] std::optional<std::uint64_t> Load(GuestMemory& mem, std::uint64_t addr,
+                                                unsigned bytes) {
+    switch (bytes) {
+    case 1: if (const auto x = mem.Read8(addr)) return *x; break;
+    case 2: if (const auto x = mem.Read16(addr)) return *x; break;
+    case 4: if (const auto x = mem.Read32(addr)) return *x; break;
+    case 8: return mem.Read64(addr);
+    default: break;
+    }
+    return std::nullopt;
+}
+[[nodiscard]] bool Store(GuestMemory& mem, std::uint64_t addr,
+                         std::uint64_t value, unsigned bytes) {
+    switch (bytes) {
+    case 1: return mem.Write8(addr, static_cast<std::uint8_t>(value));
+    case 2: return mem.Write16(addr, static_cast<std::uint16_t>(value));
+    case 4: return mem.Write32(addr, static_cast<std::uint32_t>(value));
+    case 8: return mem.Write64(addr, value);
+    default: return false;
+    }
+}
+} // namespace
+
+// Supplemental, explicitly scoped A64 integer encodings. The main interpreter
+// only calls this for instructions outside its original narrow decoder.
+std::optional<CpuResult> CpuInterpreter::StepExtended(GuestMemory& memory, std::uint32_t op) {
+    const auto pc = context.pc;
+    const unsigned rt = op & 31;
+    const unsigned rn = (op >> 5) & 31;
+    const bool wide = (op >> 31) != 0;
+    const auto illegal = [&] { return CpuResult{CpuStop::UndefinedInstruction, 1, pc, op}; };
+    const auto fault = [&](std::uint64_t address) {
+        return CpuResult{CpuStop::DataFault, 1, address, op};
+    };
+    const auto done = [&] {
+        context.pc = pc + 4;
+        return CpuResult{CpuStop::Running, 1, 0, op};
+    };
+
+    if ((op & 0x7E000000U) == 0x36000000U) {
+        // TBZ/TBNZ: 14-bit PC-relative bit-test branches, W/X per bit number.
+        const unsigned bit = ((op >> 26) & 0x20U) | ((op >> 19) & 31U);
+        const bool not_zero = (op & (1U << 24)) != 0;
+        const bool bit_set = (ReadReg(rt, bit >= 32) & (std::uint64_t{1} << bit)) != 0;
+        const auto delta = SignedImmediate((op >> 5) & 0x3fff, 14) * 4;
+        context.pc = bit_set == not_zero ? pc + static_cast<std::uint64_t>(delta) : pc + 4;
+        return CpuResult{CpuStop::Running, 1, 0, op};
+    }
+    if ((op & 0x3A000000U) == 0x28000000U) {
+        // STP/LDP integer pair, signed offset/postindex/preindex.
+        // Exclude SIMD, LDPSW and non-temporal pair variants.
+        const unsigned opc = (op >> 30) & 3;
+        const unsigned mode = (op >> 23) & 3;
+        if ((op & (1U << 26)) || (opc != 0 && opc != 2) || mode == 0)
+            return illegal();
+        const unsigned bytes = opc == 2 ? 8 : 4;
+        const bool load = (op & (1U << 22)) != 0;
+        const unsigned rt2 = (op >> 10) & 31;
+        const bool writeback = mode != 2;
+        if ((load && rt == rt2) || (writeback && rn != 31 && (rn == rt || rn == rt2)))
+            return illegal(); // constrained-unpredictable forms are rejected
+        const auto base = ReadReg(rn, true, true);
+        const auto offset = SignedImmediate((op >> 15) & 0x7f, 7) * bytes;
+        const auto address = base + (mode == 1 ? 0 : static_cast<std::uint64_t>(offset));
+        const auto second = address + bytes;
+        if (load) {
+            const auto first_value = Load(memory, address, bytes);
+            if (!first_value) return fault(address);
+            const auto second_value = Load(memory, second, bytes);
+            if (!second_value) return fault(second);
+            WriteReg(rt, *first_value, bytes == 8);
+            WriteReg(rt2, *second_value, bytes == 8);
+        } else {
+            std::array<std::uint8_t, 16> buffer{};
+            const auto first_value = ReadReg(rt, bytes == 8);
+            const auto second_value = ReadReg(rt2, bytes == 8);
+            for (unsigned i = 0; i < bytes; ++i) {
+                buffer[i] = static_cast<std::uint8_t>(first_value >> (8 * i));
+                buffer[bytes + i] = static_cast<std::uint8_t>(second_value >> (8 * i));
+            }
+            if (!memory.WriteBuffer(address, std::span<const std::uint8_t>(buffer.data(), 2 * bytes)))
+                return fault(address);
+        }
+        if (writeback) WriteReg(rn, base + static_cast<std::uint64_t>(offset), true, true);
+        return done();
+    }
+    if ((op & 0x3B200000U) == 0x38000000U) {
+        // STUR/LDUR, plus ST(R)/LD(R) post-index and pre-index forms.
+        const unsigned opc = (op >> 22) & 3;
+        const unsigned mode = (op >> 10) & 3;
+        if ((op & (1U << 26)) || opc > 1 || mode == 2) return illegal();
+        const unsigned bytes = 1U << ((op >> 30) & 3);
+        const bool writeback = mode != 0;
+        if (writeback && rn != 31 && rn == rt) return illegal();
+        const auto base = ReadReg(rn, true, true);
+        const auto offset = SignedImmediate((op >> 12) & 0x1ff, 9);
+        const auto address = base + (mode == 1 ? 0 : static_cast<std::uint64_t>(offset));
+        if (opc == 1) {
+            const auto value = Load(memory, address, bytes);
+            if (!value) return fault(address);
+            WriteReg(rt, *value, bytes == 8);
+        } else if (!Store(memory, address, ReadReg(rt, bytes == 8), bytes)) {
+            return fault(address);
+        }
+        if (writeback) WriteReg(rn, base + static_cast<std::uint64_t>(offset), true, true);
+        return done();
+    }
+    if ((op & 0x3B200C00U) == 0x38200800U) {
+        // Scalar register-offset LDR/STR: UXTW/LSL/SXTW/SXTX offsets.
+        const unsigned opc = (op >> 22) & 3;
+        const unsigned option = (op >> 13) & 7;
+        if ((op & (1U << 26)) || opc > 1 ||
+            (option != 2 && option != 3 && option != 6 && option != 7)) return illegal();
+        const unsigned sz = (op >> 30) & 3;
+        const unsigned bytes = 1U << sz;
+        const unsigned rm = (op >> 16) & 31;
+        const auto raw = ReadReg(rm, option == 3 || option == 7);
+        std::uint64_t offset = raw;
+        if (option == 6)
+            offset = static_cast<std::uint64_t>(static_cast<std::int64_t>(static_cast<std::int32_t>(raw)));
+        const unsigned scale = (op & (1U << 12)) ? sz : 0;
+        const auto address = ReadReg(rn, true, true) + (offset << scale);
+        if (opc == 1) {
+            const auto value = Load(memory, address, bytes);
+            if (!value) return fault(address);
+            WriteReg(rt, *value, bytes == 8);
+        } else if (!Store(memory, address, ReadReg(rt, bytes == 8), bytes)) {
+            return fault(address);
+        }
+        return done();
+    }
+    if ((op & 0x3B000000U) == 0x18000000U) {
+        // LDR W/X literal and LDRSW literal; not PRFM or SIMD.
+        const unsigned opc = (op >> 30) & 3;
+        if ((op & (1U << 26)) || opc == 3) return illegal();
+        const auto displacement = SignedImmediate((op >> 5) & 0x7ffff, 19) * 4;
+        const auto address = pc + static_cast<std::uint64_t>(displacement);
+        const auto value = Load(memory, address, opc == 1 ? 8 : 4);
+        if (!value) return fault(address);
+        if (opc == 2)
+            WriteReg(rt, static_cast<std::uint64_t>(static_cast<std::int64_t>(static_cast<std::int32_t>(*value))), true);
+        else WriteReg(rt, *value, opc == 1);
+        return done();
+    }
+    if ((op & 0x1FE00000U) == 0x1A800000U) {
+        // CSEL, CSINC, CSINV, CSNEG (includes CSET/CSETM aliases).
+        if (op & (1U << 11)) return illegal();
+        const unsigned cond = (op >> 12) & 15;
+        if (cond == 15) return illegal();
+        const auto a = ReadReg(rn, wide);
+        const auto b = ReadReg((op >> 16) & 31, wide);
+        std::uint64_t chosen = a;
+        if (!Condition(cond)) {
+            const bool negate_or_invert = (op & (1U << 30)) != 0;
+            const bool increment = (op & (1U << 10)) != 0;
+            chosen = negate_or_invert ? ~b : b;
+            if (increment) ++chosen;
+        }
+        WriteReg(rt, chosen, wide);
+        return done();
+    }
+    if ((op & 0x1FE00000U) == 0x1B000000U) {
+        // MADD/MSUB including MUL/MNEG aliases. Unsigned modular arithmetic.
+        const auto mul = ReadReg(rn, wide) * ReadReg((op >> 16) & 31, wide);
+        const auto acc = ReadReg((op >> 10) & 31, wide);
+        WriteReg(rt, (op & (1U << 15)) ? acc - mul : acc + mul, wide);
+        return done();
+    }
+    const auto family = op & 0x7F800000U;
+    if (family == 0x13000000U || family == 0x53000000U) {
+        // Signed/unsigned bitfield move (SBFM/UBFM) including SXTW and
+        // compiler-produced ASR/LSR/LSL and signed bitfield insert aliases.
+        const bool is_signed = family == 0x13000000U;
+        const unsigned immr = (op >> 16) & 63;
+        const unsigned imms = (op >> 10) & 63;
+        const bool n = (op & (1U << 22)) != 0;
+        const unsigned width = wide ? 64 : 32;
+        if (n != wide || immr >= width || imms >= width) return illegal();
+        const auto source = ReadReg(rn, wide);
+        std::uint64_t value;
+        unsigned field_bits;
+        if (immr <= imms) {
+            field_bits = imms - immr + 1;
+            value = (source >> immr) & LowMask(field_bits);
+        } else {
+            const unsigned shift = width - immr;
+            field_bits = imms + 1;
+            value = (source & LowMask(field_bits)) << shift;
+            field_bits += shift;
+        }
+        if (is_signed && (value & (std::uint64_t{1} << (field_bits - 1))))
+            value |= ~LowMask(field_bits);
+        WriteReg(rt, value, wide);
+        return done();
+    }
+    return std::nullopt;
+}
+} // namespace nint2
