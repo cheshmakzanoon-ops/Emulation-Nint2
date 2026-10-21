@@ -53,6 +53,18 @@ public:
         std::uint64_t generation{};
     };
     enum class ExclusiveStore : std::uint8_t { Stored, ReservationLost, Fault };
+    // Architecturally atomic LSE read/modify/write operations. All validations
+    // and the memory mutation occur on the one deterministic host CPU thread.
+    enum class AtomicOperation : std::uint8_t {
+        Swap, Add, Clear, Xor, Set, SignedMax, SignedMin,
+        UnsignedMax, UnsignedMin, CompareSwap
+    };
+    // The result is the previous (zero-extended) value, including CAS mismatch.
+    // Nullopt means a data-access fault; neither bytes nor generation change.
+    // CAS mismatch does not modify bytes or invalidate existing reservations.
+    [[nodiscard]] std::optional<std::uint64_t> AtomicRmw(
+        std::uint64_t address, unsigned bytes, AtomicOperation operation,
+        std::uint64_t operand, std::uint64_t expected = 0);
     [[nodiscard]] std::optional<ExclusiveRead>
     LoadExclusive(std::uint64_t address, unsigned bytes) const;
     [[nodiscard]] ExclusiveStore StoreExclusive(
