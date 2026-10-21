@@ -60,3 +60,25 @@ clang --target=aarch64-none-elf -nostdlib -fuse-ld=lld \
 ```
 
 CTest also generates `synthetic_ipc.elf` in the **build directory** using `nint2_ipc_guest_tests --emit-elf` and runs it through the normal `nint2 --run-synthetic` CLI, so the cross-compiler is not required in CI. The fixture generation is an explicit CTest dependency. Source and generated binaries are independent and contain no Nintendo code or assets.
+
+
+## Compiler-generated signed data and IPC fixture (2026-10-21)
+
+**tests/fixtures/original_compiled_ipc.c** is original freestanding C for this
+explicitly synthetic test ABI. It uses Clang-generated signed LDRSB/LDRSH
+instructions, array iteration, integer multiply, stack frames, subroutine calls
+and SVC, validating the signed dot product equals -116 before creating a queue.
+
+The program creates a two-message queue (service 4), sends a 22-byte constant
+(service 5), receives it into an independent writable BSS buffer (service 6),
+compares each byte, writes the received bytes (service 1), closes the handle
+(service 7) and exits zero (service 2). A tampered signed-byte constant is
+expected to exit 91 without output or handles.
+
+**tests/compiled_ipc_guest_tests.cpp** emits a new static guest ELF from its
+own AArch64 machine words and data into the build directory, then tests the
+in-process runtime and the standard --run-synthetic CLI via CTest. The new
+checks are awaiting completed remote CI validation.
+
+These services and instruction tests are **not Horizon IPC**, native Nintendo
+software, measured Switch 2 behavior, or full AArch64 ISA emulation.

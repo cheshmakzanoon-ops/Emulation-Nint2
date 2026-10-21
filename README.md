@@ -88,6 +88,36 @@ clang --target=aarch64-none-elf -ffreestanding -fno-builtin -fno-stack-protector
 ./build/nint2 --run-synthetic build/original_compiled_guest.elf
 ~~~
 
+## Continued compiler and interpreter development (2026-10-21)
+
+The AArch64 reference interpreter now includes signed scalar loads (LDRSB, LDRSH,
+LDRSW with scaled, unscaled and register-offset forms, including pre/post-indexing),
+plus RBIT, REV16, REV32, REV, CLZ and CLS. Tests include independently assembled
+encodings, memory-fault rollback, reserved instruction traps and 1,024 deterministic
+leading-zero test vectors. SIMD remains unsupported and must trap.
+
+An independently authored **freestanding C guest IPC** fixture performs a signed
+8-bit by signed 16-bit dot product, creates a test-only queue, sends 22 bytes,
+receives into writable BSS, verifies every byte, writes to stdout, closes the
+handle and exits. A tampered signed constant must cause exit 91 before queue
+creation. Source: **tests/fixtures/original_compiled_ipc.c**. CTest generates its
+own ELF in the build directory using **tests/compiled_ipc_guest_tests.cpp**.
+
+To cross-compile the original C guest independently on Linux with Clang 17/LLD:
+
+~~~sh
+clang --target=aarch64-none-elf -O0 -ffreestanding -fno-builtin \
+  -fno-stack-protector -fno-unwind-tables -nostdlib -fuse-ld=lld \
+  -Wl,-Ttext=0x10000 -Wl,--build-id=none -Wl,-z,max-page-size=4096 \
+  tests/fixtures/original_compiled_ipc.c -o build/original_compiled_ipc.elf
+./build/nint2 --run-synthetic build/original_compiled_ipc.elf
+~~~
+
+Expected stdout: C guest IPC verified! followed by a newline; expected exit 0.
+CTest checks original_compiled_c_ipc and cli_compiled_ipc_guest offline, without
+requiring an AArch64 compiler on CI. **The new CI runs are pending verification.**
+This test-only synthetic ABI does not establish Switch 2 game compatibility.
+
 ## Limitations and development
 
 No emulator of Nintendo proprietary formats or Horizon APIs, no JIT or GPU. Unsupported guest instructions and malformed executables are rejected explicitly. See the 61-phase plan in docs/MASTER_DEVELOPMENT_PLAN.md, current status in docs/STATUS.md, architecture in docs/ARCHITECTURE.md, provenance in docs/PROVENANCE.md, and guidelines in AGENTS.md.
