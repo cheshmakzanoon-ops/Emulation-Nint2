@@ -32,6 +32,18 @@ jobs:
           set -euo pipefail
           output="$(./build/nint2 --run-synthetic build/original_compiled_ipc.elf)"
           test "$output" = "C guest IPC verified!"
+      - name: Independently link and execute two original AArch64 IPC processes
+        shell: bash
+        run: |
+          set -euo pipefail
+          for program in sender receiver; do
+            clang --target=aarch64-none-elf -nostdlib -fuse-ld=lld \\
+              -Wl,-Ttext=0x10000 -Wl,--build-id=none -Wl,-z,max-page-size=4096 \\
+              "tests/fixtures/original_${program}.s" \\
+              -o "build/original_${program}_linked.elf"
+          done
+          ./build/nint2_multi_guest_elf_tests --run-pair \\
+            build/original_sender_linked.elf build/original_receiver_linked.elf
   windows:
     runs-on: windows-latest
     steps:

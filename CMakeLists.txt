@@ -40,6 +40,17 @@ if(NINT2_BUILD_TESTS)
   add_executable(nint2_session_tests tests/session_tests.cpp)
   target_link_libraries(nint2_session_tests PRIVATE nint2_core)
   add_test(NAME original_guest_session COMMAND nint2_session_tests)
+  add_executable(nint2_multi_guest_elf_tests tests/multi_guest_elf_tests.cpp)
+  target_link_libraries(nint2_multi_guest_elf_tests PRIVATE nint2_core)
+  add_test(NAME original_multi_guest_elf COMMAND nint2_multi_guest_elf_tests)
+  add_test(NAME emit_original_multi_guest_elf COMMAND nint2_multi_guest_elf_tests
+           --emit-elf "${CMAKE_CURRENT_BINARY_DIR}/original_sender.elf"
+                      "${CMAKE_CURRENT_BINARY_DIR}/original_receiver.elf")
+  set_tests_properties(emit_original_multi_guest_elf PROPERTIES FIXTURES_SETUP original_multi_elf)
+  add_test(NAME reload_original_multi_guest_elf COMMAND nint2_multi_guest_elf_tests
+           --run-pair "${CMAKE_CURRENT_BINARY_DIR}/original_sender.elf"
+                      "${CMAKE_CURRENT_BINARY_DIR}/original_receiver.elf")
+  set_tests_properties(reload_original_multi_guest_elf PROPERTIES FIXTURES_REQUIRED original_multi_elf)
   add_executable(nint2_scheduler_tests tests/scheduler_tests.cpp)
   target_link_libraries(nint2_scheduler_tests PRIVATE nint2_core)
   add_test(NAME synthetic_multi_guest_scheduler COMMAND nint2_scheduler_tests)
