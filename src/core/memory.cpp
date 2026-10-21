@@ -244,4 +244,54 @@ GuestMemory::ExclusiveStore GuestMemory::StoreExclusive(
         return ExclusiveStore::Fault;
     return ExclusiveStore::Stored;
 }
+
+std::optional<std::uint64_t> GuestMemory::AtomicRmw(
+    std::uint64_t address, unsigned bytes, AtomicOperation operation,
+    std::uint64_t operand, std::uint64_t expected) {
+    // All LSE operand sizes are naturally aligned. A naturally aligned
+    // operand of at most eight bytes cannot span a 4 KiB page boundary.
+    if ((bytes != 1 && bytes != 2 && bytes != 4 && bytes != 8) ||
+        address % bytes != 0 || address >= address_limit_ ||
+        bytes > address_limit_ - address)
+        return std::nullopt;
+
+    const auto page = pages_.find(address / kPageSize);
+    if (page == pages_.end() ||
+        !HasAccess(page->second.access, Access::Read | Access::Write))
+        return std::nullopt;
+    const auto previous = ReadLe(address, bytes, Access::Read);
+    if (!previous) return std::nullopt;
+
+    const auto mask = bytes == 8 ? UINT64_MAX :
+                      (std::uint64_t{1} << (bytes * 8)) - 1;
+    const auto old = *previous & mask;
+    const auto rhs = operand & mask;
+    const auto sign = std::uint64_t{1} << (bytes * 8 - 1);
+    std::uint64_t next = old;
+    bool write = true;
+    switch (operation) {
+    case AtomicOperation::Swap: next = rhs; break;
+    case AtomicOperation::Add: next = (old + rhs) & mask; break;
+    case AtomicOperation::Clear: next = old & ~rhs; break;
+    case AtomicOperation::Xor: next = old ^ rhs; break;
+    case AtomicOperation::Set: next = old | rhs; break;
+    case AtomicOperation::SignedMax:
+        next = (old ^ sign) >= (rhs ^ sign) ? old : rhs; break;
+    case AtomicOperation::SignedMin:
+        next = (old ^ sign) <= (rhs ^ sign) ? old : rhs; break;
+    case AtomicOperation::UnsignedMax: next = old >= rhs ? old : rhs; break;
+    case AtomicOperation::UnsignedMin: next = old <= rhs ? old : rhs; break;
+    case AtomicOperation::CompareSwap:
+        if (old == (expected & mask)) next = rhs;
+        else write = false;
+        break;
+    default: return std::nullopt;
+    }
+    // WriteLe validates/allocates before touching data. Even an equal-value
+    // store must bump the physical frame's generation to invalidate LDXR.
+    if (write && !WriteLe(address, next, bytes))
+        return std::nullopt;
+    return old;
+}
+
 } // namespace nint2
