@@ -45,6 +45,7 @@ public:
 private:
     [[nodiscard]] std::optional<CpuResult> StepExtended(GuestMemory& memory, std::uint32_t instruction);
     [[nodiscard]] std::optional<CpuResult> StepAtomic(GuestMemory& memory, std::uint32_t instruction);
+    [[nodiscard]] std::optional<CpuResult> StepLse(GuestMemory& memory, std::uint32_t instruction);
     struct ExclusiveReservation {
         bool valid{};
         const GuestMemory* space{};
