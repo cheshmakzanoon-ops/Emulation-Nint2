@@ -391,3 +391,46 @@ claimed. Historical 36/36 CTest results apply only to earlier commits.
 execute every CTest, rerun original guest source parity and compiled-C checks,
 then run sanitizer tests. The current features are independent original
 AArch64 test programs, **not** a console/firmware/game emulator.
+
+
+## 2026-10-21 continued AArch64 CPU architecture increment
+
+**Published on main in this continuation:**
+
+- CRC32/CRC32C original A64 integer execution: source decoder ddb1f83,
+  integrated interface/dispatch/build commits 4cd08b0, 9b42007, f65f0da.
+  The dispatch explicitly precedes the legacy two-source variable-shift
+  decoder, which otherwise rejects these architecturally related encodings.
+- Independent CRC assembly and 8,192-vector regression suite: c05674d,
+  5d0e318, 680e23e, 60e4aaa. Added instruction-executed golden checksum
+  and register aliasing checks in 4c0317e.
+- Original Clang-generated freestanding ARM64 CRC guest and independent
+  compile/disassembly/guest-run integration: 2b7794e, c55db4c.
+- GitHub Actions per-branch concurrency and superseded-build cancellation:
+  b965201; older queued runs visibly became cancelled in GitHub.
+- Detailed architecture/provenance and test-status record:
+  docs/CPU_ATOMIC_CRC_MILESTONES.md (84d15a6).
+
+**Tests actually executed in a local minimal host harness:**
+
+- Clang 17 assembled original CRC mnemonics and produced eleven checked
+  source machine words, including zero-register forms.
+- Compiled the CRC interpreter source with Clang C++20
+  -Wall -Wextra -Wpedantic -Werror against a minimal same-interface guest
+  CPU/memory harness, then linked and executed the authored CRC CTest body.
+  8,192 seeded opcode cases and canonical CRC-32/CRC-32C check digests
+  passed; a follow-on run covered checks through the interpreter,
+  including source/destination aliasing and NZCV preservation.
+- Clang 17 and LLD successfully cross-compiled the freestanding ARM64
+  CRC guest, and LLVM objdump showed crc32b, crc32cb, crc32x, crc32cx.
+- Previously assembled exclusive/LSE/pair/system instruction arrays were
+  independently byte-verified as 22/42/17/12 original opcodes. The compiled
+  LSE guest text bytes matched the independently generated object.
+- These results **do not verify** the full repository CMake build, complete
+  CTest, sanitizer or Windows execution. Those remote workflows were queued
+  when last checked. No current overall test pass count is claimed.
+
+**Remaining gates:** full multi-platform CI, strict source parity in the
+GitHub Linux runner, original compiler-generated guest runtime execution,
+and resolution of any resulting failures before advancing status. Partial
+AArch64 decoding must not be mistaken for native Nintendo Switch 2 emulation.
