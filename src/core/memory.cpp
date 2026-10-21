@@ -294,4 +294,86 @@ std::optional<std::uint64_t> GuestMemory::AtomicRmw(
     return old;
 }
 
+
+std::optional<GuestMemory::ExclusivePairRead> GuestMemory::LoadExclusivePair(
+    std::uint64_t address, unsigned element_bytes) const {
+    if ((element_bytes != 4 && element_bytes != 8) ||
+        address % (2 * element_bytes) != 0 ||
+        address >= address_limit_ ||
+        2 * element_bytes > address_limit_ - address)
+        return std::nullopt;
+    const auto first = ReadLe(address, element_bytes, Access::Read);
+    const auto second = ReadLe(address + element_bytes, element_bytes, Access::Read);
+    if (!first || !second) return std::nullopt;
+    // Natural alignment guarantees both elements occupy the same physical
+    // page. Frame identities, not virtual aliases, define monitor ownership.
+    const auto page = pages_.find(address / kPageSize);
+    if (page == pages_.end()) return std::nullopt;
+    return ExclusivePairRead{*first, *second, page->second.frame->id,
+                             page->second.frame->generation};
+}
+
+GuestMemory::ExclusiveStore GuestMemory::StoreExclusivePair(
+    std::uint64_t address, unsigned element_bytes,
+    std::uint64_t first, std::uint64_t second,
+    std::uint64_t frame_id, std::uint64_t generation) {
+    if ((element_bytes != 4 && element_bytes != 8) ||
+        address % (2 * element_bytes) != 0 ||
+        address >= address_limit_ ||
+        2 * element_bytes > address_limit_ - address)
+        return ExclusiveStore::Fault;
+    const auto page = pages_.find(address / kPageSize);
+    if (page == pages_.end() ||
+        !HasAccess(page->second.access, Access::Write))
+        return ExclusiveStore::Fault;
+    const auto& frame = *page->second.frame;
+    if (frame_id == 0 || frame.id != frame_id ||
+        frame.generation != generation)
+        return ExclusiveStore::ReservationLost;
+
+    std::array<std::uint8_t, 16> bytes{};
+    for (unsigned i = 0; i < element_bytes; ++i) {
+        bytes[i] = static_cast<std::uint8_t>(first >> (8 * i));
+        bytes[element_bytes + i] = static_cast<std::uint8_t>(second >> (8 * i));
+    }
+    if (!WriteBuffer(address, std::span<const std::uint8_t>{
+            bytes.data(), 2 * element_bytes}))
+        return ExclusiveStore::Fault;
+    return ExclusiveStore::Stored;
+}
+
+std::optional<GuestMemory::AtomicPairRead> GuestMemory::AtomicComparePair(
+    std::uint64_t address, unsigned element_bytes,
+    std::uint64_t expected_first, std::uint64_t expected_second,
+    std::uint64_t desired_first, std::uint64_t desired_second) {
+    if ((element_bytes != 4 && element_bytes != 8) ||
+        address % (2 * element_bytes) != 0 ||
+        address >= address_limit_ ||
+        2 * element_bytes > address_limit_ - address)
+        return std::nullopt;
+    const auto page = pages_.find(address / kPageSize);
+    if (page == pages_.end() ||
+        !HasAccess(page->second.access, Access::Read | Access::Write))
+        return std::nullopt;
+    const auto lo = ReadLe(address, element_bytes, Access::Read);
+    const auto hi = ReadLe(address + element_bytes, element_bytes, Access::Read);
+    if (!lo || !hi) return std::nullopt;
+    const auto mask = element_bytes == 8 ? UINT64_MAX : std::uint64_t{UINT32_MAX};
+    if (*lo == (expected_first & mask) && *hi == (expected_second & mask)) {
+        // Build both new values before writing any guest byte. WriteBuffer
+        // performs access and allocation checks up front, then atomically
+        // commits the contiguous pair in this one-thread interpreter.
+        std::array<std::uint8_t, 16> bytes{};
+        for (unsigned i = 0; i < element_bytes; ++i) {
+            bytes[i] = static_cast<std::uint8_t>(desired_first >> (8 * i));
+            bytes[element_bytes + i] =
+                static_cast<std::uint8_t>(desired_second >> (8 * i));
+        }
+        if (!WriteBuffer(address, std::span<const std::uint8_t>{
+                bytes.data(), 2 * element_bytes}))
+            return std::nullopt;
+    }
+    return AtomicPairRead{*lo, *hi};
+}
+
 } // namespace nint2
