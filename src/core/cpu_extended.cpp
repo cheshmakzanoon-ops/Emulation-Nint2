@@ -88,6 +88,21 @@ std::optional<CpuResult> CpuInterpreter::StepExtended(GuestMemory& memory, std::
         return CpuResult{CpuStop::Running, 1, 0, op};
     };
 
+    if ((op & 0x7FA00000U) == 0x13800000U) {
+        // EXTR and ROR (immediate alias): select a width-bit window from
+        // Rn:Rm. A64 requires N == sf; W-form shift must be less than 32.
+        const unsigned width = wide ? 64U : 32U;
+        const unsigned n = (op >> 22) & 1U;
+        const unsigned shift = (op >> 10) & 63U;
+        if (n != static_cast<unsigned>(wide) || shift >= width)
+            return illegal();
+        const auto high = ReadReg(rn, wide);
+        const auto low = ReadReg((op >> 16) & 31U, wide);
+        const auto result = shift == 0 ? low
+            : ((low >> shift) | (high << (width - shift)));
+        WriteReg(rt, result, wide);
+        return done();
+    }
     if ((op & 0x1FE0FC00U) == 0x1A000000U) {
         // ADC/ADCS/SBC/SBCS (and NGC/NGCS aliases). Guest C flag means
         // carry for addition and *no borrow* for subtraction. In particular,
