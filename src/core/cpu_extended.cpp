@@ -1,5 +1,7 @@
 #include "nint2/cpu.hpp"
 #include <array>
+#include <bit>
+#include <limits>
 #include <cstdint>
 #include <optional>
 #include <span>
@@ -103,6 +105,58 @@ std::optional<CpuResult> CpuInterpreter::StepExtended(GuestMemory& memory, std::
             context.nzcv = static_cast<std::uint8_t>(((truncated & sign) ? 8 : 0) |
                                                      (truncated == 0 ? 4 : 0));
         }
+        return done();
+    }
+    if ((op & 0x7FE00000U) == 0x1AC00000U) {
+        // A64 data-processing (2-source): unsigned/signed division and
+        // variable shifts. Unsupported opcodes in this family trap rather than
+        // accidentally executing as another ALU instruction.
+        const unsigned opcode = (op >> 10) & 63U;
+        if (opcode != 2 && opcode != 3 &&
+            opcode != 8 && opcode != 9 && opcode != 10 && opcode != 11)
+            return illegal();
+        const unsigned width = wide ? 64U : 32U;
+        const std::uint64_t mask = wide ? UINT64_MAX : std::uint64_t{UINT32_MAX};
+        const auto a = ReadReg(rn, wide);
+        const auto b = ReadReg((op >> 16) & 31U, wide);
+        std::uint64_t value = 0;
+        if (opcode == 2) { // UDIV: ARM defines division by zero as zero.
+            value = b == 0 ? 0 : a / b;
+        } else if (opcode == 3) { // SDIV, including INT_MIN / -1.
+            if (wide) {
+                const auto numerator = std::bit_cast<std::int64_t>(a);
+                const auto divisor = std::bit_cast<std::int64_t>(b);
+                if (divisor == 0) value = 0;
+                else if (numerator == std::numeric_limits<std::int64_t>::min() &&
+                         divisor == -1) value = a; // architecturally wraps
+                else value = static_cast<std::uint64_t>(numerator / divisor);
+            } else {
+                const auto numerator =
+                    std::bit_cast<std::int32_t>(static_cast<std::uint32_t>(a));
+                const auto divisor =
+                    std::bit_cast<std::int32_t>(static_cast<std::uint32_t>(b));
+                if (divisor == 0) value = 0;
+                else if (numerator == std::numeric_limits<std::int32_t>::min() &&
+                         divisor == -1) value = a;
+                else value = static_cast<std::uint32_t>(numerator / divisor);
+            }
+        } else {
+            // ARM variable shifts ignore high shift-count bits (modulo width).
+            const unsigned shift = static_cast<unsigned>(b & (width - 1));
+            if (opcode == 8) value = (a << shift) & mask; // LSLV
+            if (opcode == 9) value = a >> shift; // LSRV
+            if (opcode == 10) { // ASRV, explicitly portable sign-fill.
+                value = a >> shift;
+                const std::uint64_t sign = std::uint64_t{1} << (width - 1);
+                if (shift != 0 && (a & sign))
+                    value |= mask & ~(mask >> shift);
+            }
+            if (opcode == 11) { // RORV; never shift by the word width.
+                value = shift == 0 ? a :
+                        ((a >> shift) | (a << (width - shift))) & mask;
+            }
+        }
+        WriteReg(rt, value, wide);
         return done();
     }
     if ((op & 0x7E000000U) == 0x36000000U) {
