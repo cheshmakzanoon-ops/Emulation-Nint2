@@ -1,5 +1,7 @@
 #include "nint2/session.hpp"
 #include <array>
+#include <algorithm>
+#include <bit>
 #include <cstdint>
 #include <limits>
 #include <span>
@@ -149,8 +151,135 @@ bool SyntheticSession::CanResume() const noexcept {
     return status.error != kernel::Error::Empty && status.error != kernel::Error::Full;
 }
 
+
+namespace {
+// Conversion for original, explicitly synthetic read-only resource services.
+[[nodiscard]] std::uint64_t AssetError(assets::Error error) noexcept {
+    switch (error) {
+    case assets::Error::None: return 0;
+    case assets::Error::InvalidPath:
+    case assets::Error::InvalidArgument:
+    case assets::Error::TooLarge: return Error(22); // EINVAL
+    case assets::Error::Duplicate: return Error(17); // EEXIST
+    case assets::Error::NotFound: return Error(2); // ENOENT
+    case assets::Error::TooManyAssets:
+    case assets::Error::TooManyHandles: return Error(24); // EMFILE
+    case assets::Error::NoSpace: return Error(28); // ENOSPC
+    case assets::Error::InvalidHandle: return Error(9); // EBADF
+    case assets::Error::OutOfMemory: return Error(12); // ENOMEM
+    case assets::Error::Sealed: return Error(30); // EROFS
+    }
+    return Error(22);
+}
+[[nodiscard]] std::uint64_t GuestPath(const GuestMemory& memory, std::uint64_t addr,
+    std::uint64_t count, std::array<char, assets::AssetStore::kMaxPath>& out) noexcept {
+    if (count == 0 || count > out.size()) return Error(22);
+    for (std::uint64_t i = 0; i < count; ++i) {
+        if (i > UINT64_MAX - addr) return Error(14);
+        const auto byte = memory.Read8(addr + i);
+        if (!byte) return Error(14);
+        out[static_cast<std::size_t>(i)] = static_cast<char>(*byte);
+    }
+    return 0;
+}
+void Store64(std::span<std::uint8_t> out, std::size_t at, std::uint64_t value) noexcept {
+    for (unsigned i = 0; i < 8; ++i) out[at + i] = static_cast<std::uint8_t>(value >> (8 * i));
+}
+} // namespace
+
+std::uint64_t SyntheticSession::HandleAssetOpen() {
+    if (cpu_.context.x[2] != 0) return Error(22); // read-only is the only mode
+    std::array<char, assets::AssetStore::kMaxPath> path{};
+    if (const auto status = GuestPath(memory_, cpu_.context.x[0], cpu_.context.x[1], path))
+        return status;
+    const auto name = std::string_view(path.data(), static_cast<std::size_t>(cpu_.context.x[1]));
+    const auto result = assets_.Open(name);
+    return result.Ok() ? result.value : AssetError(result.error);
+}
+
+std::uint64_t SyntheticSession::HandleAssetRead(bool positioned) {
+    std::uint32_t fd{};
+    if (!DecodeHandle(cpu_.context.x[0], fd)) return Error(9);
+    const auto count = cpu_.context.x[2];
+    if (count > assets::AssetStore::kMaxRead) return Error(22);
+    std::array<std::uint8_t, assets::AssetStore::kMaxRead> bytes{};
+    const auto destination = std::span<std::uint8_t>(bytes.data(), static_cast<std::size_t>(count));
+    const auto result = positioned ?
+        assets_.PeekAt(fd, cpu_.context.x[3], destination) :
+        assets_.Peek(fd, destination);
+    if (!result.Ok()) return AssetError(result.error);
+    if (!memory_.WriteBuffer(cpu_.context.x[1], destination.first(
+                                 static_cast<std::size_t>(result.value))))
+        return Error(14); // retain offset on guest-buffer failure
+    if (!positioned) {
+        const auto committed = assets_.Consume(fd, static_cast<std::size_t>(result.value));
+        if (!committed.Ok()) return AssetError(committed.error);
+    }
+    return result.value;
+}
+
+std::uint64_t SyntheticSession::HandleAssetSeek() {
+    std::uint32_t fd{};
+    if (!DecodeHandle(cpu_.context.x[0], fd)) return Error(9);
+    if (cpu_.context.x[2] > 2) return Error(22);
+    const auto delta = std::bit_cast<std::int64_t>(cpu_.context.x[1]);
+    const auto result = assets_.Seek(fd, delta, static_cast<unsigned>(cpu_.context.x[2]));
+    return result.Ok() ? result.value : AssetError(result.error);
+}
+
+std::uint64_t SyntheticSession::HandleAssetClose() {
+    std::uint32_t fd{};
+    if (!DecodeHandle(cpu_.context.x[0], fd)) return Error(9);
+    return AssetError(assets_.Close(fd).error);
+}
+
+std::uint64_t SyntheticSession::HandleAssetStat() {
+    std::array<char, assets::AssetStore::kMaxPath> path{};
+    if (const auto status = GuestPath(memory_, cpu_.context.x[0], cpu_.context.x[1], path))
+        return status;
+    const auto name = std::string_view(path.data(), static_cast<std::size_t>(cpu_.context.x[1]));
+    assets::Info info{};
+    if (const auto err = assets_.Stat(name, info); err != assets::Error::None)
+        return AssetError(err);
+    std::array<std::uint8_t, 16> out{};
+    Store64(out, 0, info.size);
+    Store64(out, 8, info.digest);
+    return memory_.WriteBuffer(cpu_.context.x[2], out) ? 0 : Error(14);
+}
+
+std::uint64_t SyntheticSession::HandleAssetFstat() {
+    std::uint32_t fd{};
+    if (!DecodeHandle(cpu_.context.x[0], fd)) return Error(9);
+    assets::Info info{};
+    if (const auto err = assets_.Fstat(fd, info); err != assets::Error::None)
+        return AssetError(err);
+    std::array<std::uint8_t, 24> out{};
+    Store64(out, 0, info.size);
+    Store64(out, 8, info.digest);
+    Store64(out, 16, info.offset);
+    return memory_.WriteBuffer(cpu_.context.x[1], out) ? 0 : Error(14);
+}
+
+std::uint64_t SyntheticSession::HandleAssetEnumerate() {
+    // One all-or-nothing 152-byte guest write prevents a half-written record.
+    constexpr std::size_t kRecordSize = 24 + assets::AssetStore::kMaxPath;
+    if (cpu_.context.x[0] >= assets_.AssetCount()) return 0; // EOF enumeration
+    if (cpu_.context.x[2] < kRecordSize) return Error(90); // EMSGSIZE
+    std::string_view name;
+    assets::Info info{};
+    if (!assets_.Enumerate(static_cast<std::size_t>(cpu_.context.x[0]), name, info))
+        return 0;
+    std::array<std::uint8_t, kRecordSize> record{};
+    Store64(record, 0, info.size);
+    Store64(record, 8, info.digest);
+    Store64(record, 16, name.size());
+    std::copy(name.begin(), name.end(), record.begin() + 24);
+    return memory_.WriteBuffer(cpu_.context.x[1], record) ? 1 : Error(14);
+}
+
 SessionResult SyntheticSession::Run(std::uint64_t max_steps) {
     if (exited_) return Outcome(SessionStop::Exited, CpuStop::SupervisorCall);
+    assets_.Seal(); // immutable manifest once a guest may observe it
     if (waiting_ && !CanResume())
         return Outcome(SessionStop::Blocked, CpuStop::SupervisorCall);
     for (std::uint64_t i = 0; i < max_steps; ++i) {
@@ -169,7 +298,7 @@ SessionResult SyntheticSession::Run(std::uint64_t max_steps) {
         if (service == 2) { // Exit(code=x0)
             exited_ = true;
             exit_code_ = cpu_.context.x[0];
-            handles_.Retire(); // departed guests cannot keep peers artificially alive
+            RetireHandles(); // departed guests cannot keep peers/files artificially alive
             return Outcome(SessionStop::Exited, step.stop);
         }
         if (service == 1) { // Write(fd=x0, guest_ptr=x1, length=x2)
@@ -192,6 +321,22 @@ SessionResult SyntheticSession::Run(std::uint64_t max_steps) {
             cpu_.context.x[0] = HandleQueueClose();
         } else if (service == 8) { // Duplicate queue handle with subset of rights
             cpu_.context.x[0] = HandleQueueDuplicate();
+        } else if (service == 10) { // Open read-only asset by guest UTF-8 path bytes
+            cpu_.context.x[0] = HandleAssetOpen();
+        } else if (service == 11) { // Read into guest memory, advancing fd on success
+            cpu_.context.x[0] = HandleAssetRead(false);
+        } else if (service == 12) { // Signed relative/absolute seek
+            cpu_.context.x[0] = HandleAssetSeek();
+        } else if (service == 13) { // Close asset descriptor
+            cpu_.context.x[0] = HandleAssetClose();
+        } else if (service == 14) { // Read path metadata into guest memory
+            cpu_.context.x[0] = HandleAssetStat();
+        } else if (service == 15) { // Enumerate an immutable path record
+            cpu_.context.x[0] = HandleAssetEnumerate();
+        } else if (service == 16) { // Read without changing the current offset
+            cpu_.context.x[0] = HandleAssetRead(true);
+        } else if (service == 17) { // Descriptor metadata including offset
+            cpu_.context.x[0] = HandleAssetFstat();
         } else if (service == 9) { // Query or cooperatively wait for queue readiness
             std::uint32_t handle{};
             const auto raw_direction = cpu_.context.x[1];

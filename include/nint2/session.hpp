@@ -2,7 +2,9 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include "nint2/assets.hpp"
 #include "nint2/cpu.hpp"
+#include <span>
 #include "nint2/kernel.hpp"
 
 namespace nint2 {
@@ -42,7 +44,13 @@ public:
     // A blocked synthetic SVC is resumable only after state changes. These
     // methods are for the host-owned cooperative scheduler, not guest ABI.
     [[nodiscard]] bool CanResume() const noexcept;
-    void RetireHandles() noexcept { handles_.Retire(); }
+    void RetireHandles() noexcept { handles_.Retire(); assets_.CloseAll(); }
+    // Host supplies immutable original data before the first Run(); the guest
+    // never opens an arbitrary host file or modifies mounted bytes.
+    [[nodiscard]] assets::Result MountAsset(std::string_view path,
+        std::span<const std::uint8_t> bytes) { return assets_.Mount(path, bytes); }
+    [[nodiscard]] std::size_t OpenAssetCount() const noexcept { return assets_.OpenCount(); }
+    [[nodiscard]] std::size_t AssetCount() const noexcept { return assets_.AssetCount(); }
     // Host-owned bootstrap authority; imports an attenuated capability before
     // guest execution without depending on compiler-generated startup steps.
     // This does not introduce a guest-visible service or share address spaces.
@@ -62,12 +70,20 @@ private:
     [[nodiscard]] std::uint64_t HandleQueueReceive();
     [[nodiscard]] std::uint64_t HandleQueueClose();
     [[nodiscard]] std::uint64_t HandleQueueDuplicate();
+    [[nodiscard]] std::uint64_t HandleAssetOpen();
+    [[nodiscard]] std::uint64_t HandleAssetRead(bool positioned);
+    [[nodiscard]] std::uint64_t HandleAssetSeek();
+    [[nodiscard]] std::uint64_t HandleAssetClose();
+    [[nodiscard]] std::uint64_t HandleAssetStat();
+    [[nodiscard]] std::uint64_t HandleAssetEnumerate();
+    [[nodiscard]] std::uint64_t HandleAssetFstat();
     [[nodiscard]] SessionResult Outcome(SessionStop stop, CpuStop cpu_stop,
                                         std::uint64_t fault = 0,
                                         std::uint64_t service = 0) const noexcept;
     GuestMemory& memory_;
     CpuInterpreter cpu_;
     kernel::HandleTable handles_;
+    assets::AssetStore assets_;
     std::string stdout_;
     std::string stderr_;
     std::uint64_t steps_{};
