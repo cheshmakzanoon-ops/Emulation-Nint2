@@ -62,7 +62,7 @@ Result GuestArena::Install(std::uint64_t address, std::uint64_t size, Access acc
 }
 
 Result GuestArena::Allocate(std::uint64_t size, Access access, std::uint64_t preferred) {
-    if (size == 0 || size % kPage != 0 || size > kMaxAllocation ||
+    if (size == 0 || size % kPage != 0 || size > kMaxAllocation || size > length_ ||
         !ValidAccess(access) || !ValidWindow())
         return {Error::InvalidArgument, {}};
     if (regions_.size() >= kMaxRegions || size > kMaxMappedBytes - allocated_)
