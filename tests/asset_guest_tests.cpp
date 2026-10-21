@@ -118,7 +118,7 @@ int main(int argc, char** argv) {
 
     // Original source -> self-contained ELF -> actual interpreter and SVCs.
     const auto elf = OriginalAssetElf();
-    GuestMemory elf_memory(0x10000);
+    GuestMemory elf_memory(0x40000);
     const auto load = LoadElf64(elf, elf_memory);
     REQUIRE(load.error == ElfError::None && load.entry == 0x10000);
     REQUIRE(elf_memory.Map(0x3000, 4096, Access::Read | Access::Write));
@@ -142,7 +142,7 @@ int main(int argc, char** argv) {
 
     // Missing assets and truncated content must take the guest's error path;
     // the host must not fake successful output or silently create files.
-    GuestMemory missing_mem(0x10000);
+    GuestMemory missing_mem(0x40000);
     REQUIRE(LoadElf64(elf, missing_mem).error == ElfError::None);
     REQUIRE(missing_mem.Map(0x3000, 4096, Access::Read | Access::Write));
     SyntheticSession missing(missing_mem, 0x10000, 0x4000);
@@ -151,7 +151,7 @@ int main(int argc, char** argv) {
     REQUIRE(not_found.stop == SessionStop::Exited && not_found.exit_code == 90);
     REQUIRE(missing.Stdout().empty() && missing.OpenAssetCount() == 0);
 
-    GuestMemory short_mem(0x10000);
+    GuestMemory short_mem(0x40000);
     REQUIRE(LoadElf64(elf, short_mem).error == ElfError::None);
     REQUIRE(short_mem.Map(0x3000, 4096, Access::Read | Access::Write));
     SyntheticSession shorter(short_mem, 0x10000, 0x4000);

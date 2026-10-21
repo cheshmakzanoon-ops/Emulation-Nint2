@@ -4,6 +4,7 @@
 #include <vector>
 #include "nint2/elf.hpp"
 #include "nint2/session.hpp"
+#include "nint2/assets.hpp"
 #include <string_view>
 #include "nint2/cpu.hpp"
 #include "nint2/memory.hpp"
@@ -12,9 +13,10 @@
 int main(int argc, char** argv) {
     if (argc == 4 && std::string_view(argv[1]) == "--run-synthetic-pair")
         return RunSyntheticPair(argv[2], argv[3]);
-    if (argc == 3 && (std::string_view(argv[1]) == "--run-elf" ||
-                      std::string_view(argv[1]) == "--run-synthetic")) {
-        const bool synthetic = std::string_view(argv[1]) == "--run-synthetic";
+    const bool with_asset = argc == 5 && std::string_view(argv[1]) == "--run-synthetic-asset";
+    if ((argc == 3 && (std::string_view(argv[1]) == "--run-elf" ||
+                       std::string_view(argv[1]) == "--run-synthetic")) || with_asset) {
+        const bool synthetic = with_asset || std::string_view(argv[1]) == "--run-synthetic";
         std::ifstream file(argv[2], std::ios::binary | std::ios::ate);
         if (!file || file.tellg() <= 0 || file.tellg() > 32 * 1024 * 1024) {
             std::cerr << "Cannot read ELF (missing/empty/over 32 MiB)\n";
@@ -41,6 +43,36 @@ int main(int argc, char** argv) {
         }
         if (synthetic) {
             nint2::SyntheticSession guest(memory, loaded.entry, stack_start + 0x10000);
+            if (with_asset) {
+                // The host explicitly selects one input file, copies it once
+                // into a bounded immutable guest manifest, then closes it.
+                // Nothing in the guest can name or open a host filesystem path.
+                std::ifstream source(argv[4], std::ios::binary | std::ios::ate);
+                if (!source || source.tellg() < 0 ||
+                    source.tellg() > static_cast<std::streamoff>(
+                        nint2::assets::AssetStore::kMaxFileBytes)) {
+                    std::cerr << "Cannot read bounded host-provisioned asset\n";
+                    return 2;
+                }
+                const auto asset_length = static_cast<std::size_t>(source.tellg());
+                std::vector<std::uint8_t> asset_bytes(asset_length);
+                source.seekg(0);
+                if (asset_length != 0 &&
+                    !source.read(reinterpret_cast<char*>(asset_bytes.data()),
+                                 static_cast<std::streamsize>(asset_length))) {
+                    std::cerr << "Cannot read entire host-provisioned asset\n";
+                    return 2;
+                }
+                const auto mounted = guest.MountAsset(argv[3], asset_bytes);
+                if (!mounted.Ok()) {
+                    std::cerr << "Guest asset path or quota rejected: "
+                              << static_cast<int>(mounted.error) << '\n';
+                    return 2;
+                }
+                // Explicit fixture convention: x20 points to a private,
+                // writable buffer inside this guest's already mapped stack.
+                guest.Context().x[20] = stack_start;
+            }
             const auto outcome = guest.Run(1000000);
             std::cout << guest.Stdout();
             std::cerr << guest.Stderr();
@@ -59,12 +91,12 @@ int main(int argc, char** argv) {
         return execution.stop == nint2::CpuStop::Breakpoint ? 0 : 1;
     }
     if (argc != 2) {
-        std::cerr << "Usage: nint2 --help | --version | --smoke | --cpu-smoke | --run-elf <original.elf> | --run-synthetic <original.elf> | --run-synthetic-pair <client.elf> <server.elf>\n";
+        std::cerr << "Usage: nint2 --help | --version | --smoke | --cpu-smoke | --run-elf <original.elf> | --run-synthetic <original.elf> | --run-synthetic-pair <client.elf> <server.elf> | --run-synthetic-asset <guest.elf> <guest_path> <host_file>\n";
         return 2;
     }
     const std::string_view option = argv[1];
     if (option == "--help") {
-        std::cout << "nint2 research runtime: --help | --version | --smoke | --cpu-smoke | --run-elf <original.elf> | --run-synthetic <original.elf> | --run-synthetic-pair <client.elf> <server.elf>\n"
+        std::cout << "nint2 research runtime: --help | --version | --smoke | --cpu-smoke | --run-elf <original.elf> | --run-synthetic <original.elf> | --run-synthetic-pair <client.elf> <server.elf> | --run-synthetic-asset <guest.elf> <guest_path> <host_file>\n"
                      "Original AArch64 tests only; no Switch 2 game/firmware support.\n";
         return 0;
     }

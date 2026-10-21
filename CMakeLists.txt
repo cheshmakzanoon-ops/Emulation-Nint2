@@ -20,6 +20,19 @@ if(NINT2_BUILD_TESTS)
   add_test(NAME generate_original_asset_elf COMMAND nint2_asset_guest_tests --emit-elf
            "${CMAKE_CURRENT_BINARY_DIR}/original_asset_guest.elf")
   set_tests_properties(generate_original_asset_elf PROPERTIES FIXTURES_SETUP original_asset_elf)
+  add_test(NAME cli_original_asset_guest COMMAND "${CMAKE_COMMAND}"
+           "-DNINT2_EXECUTABLE=$<TARGET_FILE:nint2>"
+           "-DGUEST_ELF=${CMAKE_CURRENT_BINARY_DIR}/original_asset_guest.elf"
+           "-DHOST_ASSET=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/asset_message.txt"
+           "-DEXPECTED_OUTPUT=Loaded from asset!"
+           -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_asset_cli.cmake")
+  set_tests_properties(cli_original_asset_guest PROPERTIES
+      FIXTURES_REQUIRED original_asset_elf TIMEOUT 30)
+  add_test(NAME cli_rejects_invalid_guest_asset_path COMMAND nint2 --run-synthetic-asset
+           "${CMAKE_CURRENT_BINARY_DIR}/original_asset_guest.elf" ../escape
+           "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/asset_message.txt")
+  set_tests_properties(cli_rejects_invalid_guest_asset_path PROPERTIES
+      FIXTURES_REQUIRED original_asset_elf WILL_FAIL TRUE)
   add_executable(nint2_assets_tests tests/assets_tests.cpp)
   target_link_libraries(nint2_assets_tests PRIVATE nint2_core)
   add_test(NAME synthetic_asset_store COMMAND nint2_assets_tests)
