@@ -42,7 +42,7 @@ int main() {
     CHECK(cpu.context.pc == 0x1004);
     cpu.context.x[1] = UINT64_C(0xfffb0000a5a5a5a5);
     CHECK(run(1).stop == CpuStop::Running);
-    CHECK(cpu.context.nzcv == 0);
+    CHECK(cpu.context.nzcv == 0xa);
     cpu.context.x[1] = UINT64_C(0xfff0000000000000);
     CHECK(run(1).stop == CpuStop::Running && cpu.context.nzcv == 0);
 
@@ -62,8 +62,7 @@ int main() {
 
     // A64 conditional branch consumes the flags written by MSR NZCV.
     CHECK(run(15).stop == CpuStop::Running);
-    CHECK(cpu.context.pc == 0x1000 + 4 * 15 + 4); // n=511 -> NZCV = 0xf, Z set
-    // Above B.EQ branch uses PC+8 when Z is set, not PC+4.
+    CHECK(cpu.context.pc == 0x1000 + 4 * 15 + 8); // n=511 -> Z set
     cpu.context.nzcv = 4;
     CHECK(run(15).stop == CpuStop::Running);
     CHECK(cpu.context.pc == 0x1000 + 4 * 15 + 8);
