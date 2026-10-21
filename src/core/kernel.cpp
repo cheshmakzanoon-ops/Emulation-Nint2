@@ -17,14 +17,18 @@ void MessageQueue::Detach(Right rights) noexcept {
     if (HasRights(rights, Right::Send)) --senders_;
     if (HasRights(rights, Right::Receive)) --receivers_;
 }
-Result MessageQueue::Readiness(Right direction) const noexcept {
+Result MessageQueue::Readiness(Right direction, std::size_t requested_bytes) const noexcept {
+    if (requested_bytes > kMaxMessage ||
+        (direction == Right::Receive && requested_bytes != 0))
+        return {Error::InvalidArgument, 0};
     if (direction == Right::Receive) {
         if (!messages_.empty()) return {Error::None, messages_.front().size()};
         return {senders_ == 0 ? Error::PeerClosed : Error::Empty, 0};
     }
     if (direction == Right::Send) {
         if (receivers_ == 0) return {Error::PeerClosed, 0};
-        if (messages_.size() >= capacity_ || queued_bytes_ >= kMaxQueuedBytes)
+        if (messages_.size() >= capacity_ ||
+            requested_bytes > kMaxQueuedBytes - queued_bytes_)
             return {Error::Full, 0};
         return {Error::None, kMaxQueuedBytes - queued_bytes_};
     }
@@ -66,12 +70,15 @@ void HandleTable::Retire() noexcept {
         entry.queue->Detach(entry.rights);
     }
 }
-Result HandleTable::Status(std::uint32_t handle, Right direction) const noexcept {
-    if (direction != Right::Send && direction != Right::Receive)
+Result HandleTable::Status(std::uint32_t handle, Right direction,
+                           std::size_t requested_bytes) const noexcept {
+    if ((direction != Right::Send && direction != Right::Receive) ||
+        requested_bytes > MessageQueue::kMaxMessage ||
+        (direction == Right::Receive && requested_bytes != 0))
         return {Error::InvalidArgument, 0};
     if (const auto status = Check(handle, direction); status != Error::None)
         return {status, 0};
-    return entries_.find(handle)->second.queue->Readiness(direction);
+    return entries_.find(handle)->second.queue->Readiness(direction, requested_bytes);
 }
 Result HandleTable::Insert(std::shared_ptr<MessageQueue> queue, Right rights) {
     if (!active_) return {Error::InvalidHandle, 0};

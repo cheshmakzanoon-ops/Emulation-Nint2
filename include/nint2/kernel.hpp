@@ -47,7 +47,10 @@ public:
     [[nodiscard]] std::size_t Capacity() const noexcept { return capacity_; }
     // Readiness is an advisory snapshot for a cooperative synthetic scheduler.
     // Queued reads remain readable after the final sender closes.
-    [[nodiscard]] Result Readiness(Right direction) const noexcept;
+    // requested_bytes is optional for the old any-message Send poll. With a
+    // nonzero size, only report writable when that entire packet fits.
+    [[nodiscard]] Result Readiness(Right direction,
+                                   std::size_t requested_bytes = 0) const noexcept;
     [[nodiscard]] std::size_t SenderCount() const noexcept { return senders_; }
     [[nodiscard]] std::size_t ReceiverCount() const noexcept { return receivers_; }
 private:
@@ -78,7 +81,8 @@ public:
     // diagnostic number of still-open handles. Safe to call more than once.
     void Retire() noexcept;
     [[nodiscard]] bool Active() const noexcept { return active_; }
-    [[nodiscard]] Result Status(std::uint32_t handle, Right direction) const noexcept;
+    [[nodiscard]] Result Status(std::uint32_t handle, Right direction,
+                                std::size_t requested_bytes = 0) const noexcept;
     [[nodiscard]] Result CreateQueue(std::size_t queue_capacity);
     [[nodiscard]] Result Duplicate(std::uint32_t handle, Right requested);
     // Host-controlled capability grant into a distinct guest handle namespace.

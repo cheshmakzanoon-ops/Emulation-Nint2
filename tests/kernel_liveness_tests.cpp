@@ -124,6 +124,40 @@ int main() {
     CHECK(full_queue->Consume().Ok());
     CHECK(saturation.Status(1, Right::Send).Ok());
 
+    // Exact-size Send readiness must match the queue's byte quota.
+    // A queue with spare message slots can still lack room for a packet.
+    HandleTable byte_owner;
+    CHECK(byte_owner.CreateQueue(64).Ok());
+    const auto byte_queue = byte_owner.Get(1, Right::Send);
+    CHECK(byte_queue);
+    std::array<std::uint8_t, MessageQueue::kMaxMessage> large_packet{};
+    for (unsigned i = 0; i < 15; ++i)
+        CHECK(byte_queue->Send(large_packet).Ok());
+    std::array<std::uint8_t, MessageQueue::kMaxMessage - 1> near_packet{};
+    CHECK(byte_queue->Send(near_packet).Ok());
+    CHECK(byte_queue->Depth() == 16);
+    CHECK(byte_queue->QueuedBytes() == MessageQueue::kMaxQueuedBytes - 1);
+    CHECK(byte_owner.Status(1, Right::Send).Ok());
+    CHECK(byte_owner.Status(1, Right::Send, 0).Ok());
+    CHECK(byte_owner.Status(1, Right::Send, 1).Ok());
+    CHECK(byte_owner.Status(1, Right::Send, 2).error == Error::Full);
+    CHECK(byte_owner.Status(1, Right::Send, MessageQueue::kMaxMessage).error == Error::Full);
+    CHECK(byte_owner.Status(1, Right::Send, MessageQueue::kMaxMessage + 1).error ==
+          Error::InvalidArgument);
+    CHECK(byte_owner.Status(1, Right::Receive, 1).error == Error::InvalidArgument);
+    CHECK(byte_queue->Send(std::array<std::uint8_t, 2>{}).error == Error::Full);
+    // A one-byte write consumes the final byte without using a message slot.
+    CHECK(byte_queue->Send(std::array<std::uint8_t, 1>{}).Ok());
+    CHECK(byte_queue->QueuedBytes() == MessageQueue::kMaxQueuedBytes);
+    CHECK(byte_owner.Status(1, Right::Send, 0).Ok()); // zero-length writes may fit
+    CHECK(byte_owner.Status(1, Right::Send, 1).error == Error::Full);
+    CHECK(byte_queue->Consume().value == MessageQueue::kMaxMessage);
+    CHECK(byte_owner.Status(1, Right::Send, MessageQueue::kMaxMessage).Ok());
+    CHECK(byte_queue->Readiness(Right::Send, MessageQueue::kMaxMessage).Ok());
+    CHECK(byte_owner.Close(1).Ok());
+    CHECK(byte_queue->SenderCount() == 0 && byte_queue->ReceiverCount() == 0);
+    CHECK(byte_queue->Readiness(Right::Send, 1).error == Error::PeerClosed);
+
     std::cout << "Capability endpoints, peer closure, retirement and readiness passed\n";
     return EXIT_SUCCESS;
 }
