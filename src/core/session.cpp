@@ -71,6 +71,7 @@ namespace {
     case kernel::Error::Full: return Error(11); // EAGAIN
     case kernel::Error::BufferTooSmall: return Error(90); // EMSGSIZE
     case kernel::Error::OutOfMemory: return Error(12); // ENOMEM
+    case kernel::Error::PeerClosed: return Error(32); // EPIPE
     }
     return Error(22);
 }
@@ -142,8 +143,16 @@ std::uint64_t SyntheticSession::HandleQueueDuplicate() {
     return result.Ok() ? result.value : QueueError(result.error);
 }
 
+bool SyntheticSession::CanResume() const noexcept {
+    if (!waiting_) return true;
+    const auto status = handles_.Status(wait_handle_, wait_direction_);
+    return status.error != kernel::Error::Empty && status.error != kernel::Error::Full;
+}
+
 SessionResult SyntheticSession::Run(std::uint64_t max_steps) {
     if (exited_) return Outcome(SessionStop::Exited, CpuStop::SupervisorCall);
+    if (waiting_ && !CanResume())
+        return Outcome(SessionStop::Blocked, CpuStop::SupervisorCall);
     for (std::uint64_t i = 0; i < max_steps; ++i) {
         const auto step = cpu_.Step(memory_);
         ++steps_;
@@ -160,6 +169,7 @@ SessionResult SyntheticSession::Run(std::uint64_t max_steps) {
         if (service == 2) { // Exit(code=x0)
             exited_ = true;
             exit_code_ = cpu_.context.x[0];
+            handles_.Retire(); // departed guests cannot keep peers artificially alive
             return Outcome(SessionStop::Exited, step.stop);
         }
         if (service == 1) { // Write(fd=x0, guest_ptr=x1, length=x2)
@@ -182,10 +192,31 @@ SessionResult SyntheticSession::Run(std::uint64_t max_steps) {
             cpu_.context.x[0] = HandleQueueClose();
         } else if (service == 8) { // Duplicate queue handle with subset of rights
             cpu_.context.x[0] = HandleQueueDuplicate();
+        } else if (service == 9) { // Query or cooperatively wait for queue readiness
+            std::uint32_t handle{};
+            const auto raw_direction = cpu_.context.x[1];
+            const auto mode = cpu_.context.x[2];
+            if (!DecodeHandle(cpu_.context.x[0], handle)) {
+                cpu_.context.x[0] = Error(9);
+            } else if ((raw_direction != 1 && raw_direction != 2) || mode > 1) {
+                cpu_.context.x[0] = Error(22);
+            } else {
+                const auto direction = static_cast<kernel::Right>(raw_direction);
+                const auto status = handles_.Status(handle, direction);
+                if (mode == 1 && (status.error == kernel::Error::Empty ||
+                                  status.error == kernel::Error::Full)) {
+                    waiting_ = true;
+                    wait_handle_ = handle;
+                    wait_direction_ = direction;
+                    return Outcome(SessionStop::Blocked, step.stop);
+                }
+                cpu_.context.x[0] = QueueError(status.error);
+            }
         } else {
             return Outcome(SessionStop::UnsupportedSupervisorCall, step.stop,
                            cpu_.context.pc, service);
         }
+        waiting_ = false;
         cpu_.context.pc += 4; // SVC is a four-byte AArch64 instruction
     }
     return Outcome(SessionStop::StepLimit, CpuStop::StepLimit, cpu_.context.pc);

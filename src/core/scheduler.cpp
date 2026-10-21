@@ -9,6 +9,7 @@ bool SyntheticScheduler::Add(SyntheticSession& session) noexcept {
         if (sessions_[i] == &session) return false;
     sessions_[size_] = &session;
     finished_[size_] = false;
+    blocked_[size_] = false;
     outcomes_[size_] = SessionStop::StepLimit;
     ++size_;
     return true;
@@ -42,15 +43,22 @@ SchedulerResult SyntheticScheduler::Run(std::uint64_t max_steps,
         if (spent == max_steps) return Summary(SchedulerStop::BudgetExhausted);
 
         std::size_t index = next_;
-        for (std::size_t scan = 0; scan < size_ && finished_[index]; ++scan)
+        std::size_t scanned = 0;
+        for (; scanned < size_; ++scanned) {
+            if (!finished_[index] && (!blocked_[index] || sessions_[index]->CanResume()))
+                break;
             index = (index + 1) % size_;
+        }
+        if (scanned == size_) return Summary(SchedulerStop::Deadlock);
         const auto before = sessions_[index]->TotalSteps();
         const auto slice = std::min(quantum, max_steps - spent);
         const auto outcome = sessions_[index]->Run(slice);
         const auto taken = outcome.steps - before;
         spent += taken;
         executed_ += taken;
-        if (outcome.stop != SessionStop::StepLimit) {
+        blocked_[index] = outcome.stop == SessionStop::Blocked;
+        if (outcome.stop != SessionStop::StepLimit && outcome.stop != SessionStop::Blocked) {
+            sessions_[index]->RetireHandles();
             finished_[index] = true;
             outcomes_[index] = outcome.stop;
         }

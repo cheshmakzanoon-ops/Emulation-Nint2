@@ -9,7 +9,7 @@ namespace nint2 {
 // A deterministic host-only scheduler for independently owned SyntheticSession
 // instances. It does not represent native Horizon processes or scheduling.
 enum class SchedulerStop : std::uint8_t {
-    Completed, BudgetExhausted, GuestFailed, InvalidConfiguration
+    Completed, BudgetExhausted, GuestFailed, InvalidConfiguration, Deadlock
 };
 struct SchedulerResult {
     SchedulerStop stop{SchedulerStop::InvalidConfiguration};
@@ -33,6 +33,7 @@ private:
     [[nodiscard]] SchedulerResult Summary(SchedulerStop stop) const noexcept;
     std::array<SyntheticSession*, kMaxProcesses> sessions_{};
     std::array<bool, kMaxProcesses> finished_{};
+    std::array<bool, kMaxProcesses> blocked_{};
     std::array<SessionStop, kMaxProcesses> outcomes_{};
     std::size_t size_{};
     std::size_t next_{};

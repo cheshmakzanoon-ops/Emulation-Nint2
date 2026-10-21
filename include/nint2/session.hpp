@@ -14,7 +14,8 @@ enum class SessionStop : std::uint8_t {
     CpuException,
     UnsupportedSupervisorCall,
     StepLimit,
-    HostResourceFailure
+    HostResourceFailure,
+    Blocked // voluntary synthetic QueueWait, not an architectural CPU trap
 };
 struct SessionResult {
     SessionStop stop{SessionStop::StepLimit};
@@ -38,6 +39,10 @@ public:
     [[nodiscard]] std::string_view Stderr() const noexcept { return stderr_; }
     [[nodiscard]] std::size_t HandleCount() const noexcept { return handles_.Size(); }
     [[nodiscard]] std::uint64_t TotalSteps() const noexcept { return steps_; }
+    // A blocked synthetic SVC is resumable only after state changes. These
+    // methods are for the host-owned cooperative scheduler, not guest ABI.
+    [[nodiscard]] bool CanResume() const noexcept;
+    void RetireHandles() noexcept { handles_.Retire(); }
     // Host-owned bootstrap authority; imports an attenuated capability before
     // guest execution without depending on compiler-generated startup steps.
     // This does not introduce a guest-visible service or share address spaces.
@@ -68,5 +73,8 @@ private:
     std::uint64_t steps_{};
     std::uint64_t exit_code_{};
     bool exited_{};
+    bool waiting_{};
+    std::uint32_t wait_handle_{};
+    kernel::Right wait_direction_{kernel::Right::None};
 };
 } // namespace nint2
