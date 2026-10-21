@@ -172,6 +172,19 @@ if(NINT2_BUILD_TESTS)
            "${CMAKE_CURRENT_BINARY_DIR}/compiled_rpc_server.elf")
   set_tests_properties(cli_rpc_rejects_invalid_elf PROPERTIES
       FIXTURES_REQUIRED original_rpc_elf WILL_FAIL TRUE)
+  add_executable(nint2_compiled_lse_tests tests/compiled_lse_guest_tests.cpp)
+  target_link_libraries(nint2_compiled_lse_tests PRIVATE nint2_core)
+  add_test(NAME original_compiled_c_lse_atomic_guest COMMAND nint2_compiled_lse_tests)
+  add_test(NAME generate_compiled_lse_elf COMMAND nint2_compiled_lse_tests --emit-elf
+           "${CMAKE_CURRENT_BINARY_DIR}/compiled_lse_guest.elf")
+  set_tests_properties(generate_compiled_lse_elf PROPERTIES FIXTURES_SETUP compiled_lse_elf)
+  add_test(NAME cli_original_compiled_lse_guest COMMAND "${CMAKE_COMMAND}"
+           "-DNINT2_EXECUTABLE=$<TARGET_FILE:nint2>"
+           "-DGUEST_ELF=${CMAKE_CURRENT_BINARY_DIR}/compiled_lse_guest.elf"
+           "-DEXPECTED_OUTPUT=Compiled ARM64 LSE atomics verified!"
+           -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_guest_cli.cmake")
+  set_tests_properties(cli_original_compiled_lse_guest PROPERTIES
+      FIXTURES_REQUIRED compiled_lse_elf TIMEOUT 30)
   add_executable(nint2_compiled_c_tests tests/compiled_c_guest_tests.cpp)
   target_link_libraries(nint2_compiled_c_tests PRIVATE nint2_core)
   add_test(NAME original_compiled_c_guest COMMAND nint2_compiled_c_tests)
