@@ -22,6 +22,8 @@ struct CpuContext {
     std::uint64_t pc{};
     // NZCV in bits 3:0 (N=8, Z=4, C=2, V=1).
     std::uint8_t nzcv{};
+    // Per-guest EL0 thread pointer, never a host-process pointer.
+    std::uint64_t tpidr_el0{};
 };
 
 struct CpuResult {
@@ -32,7 +34,7 @@ struct CpuResult {
 };
 
 // Deliberately incomplete AArch64 reference executor for original ELF test programs.
-// All unsupported instructions trap; no privilege, SIMD, atomics or host syscalls.
+// All unsupported instructions trap; no privilege, SIMD or host syscalls.
 class CpuInterpreter final {
 public:
     CpuContext context{};
@@ -46,6 +48,7 @@ private:
     [[nodiscard]] std::optional<CpuResult> StepExtended(GuestMemory& memory, std::uint32_t instruction);
     [[nodiscard]] std::optional<CpuResult> StepAtomic(GuestMemory& memory, std::uint32_t instruction);
     [[nodiscard]] std::optional<CpuResult> StepLse(GuestMemory& memory, std::uint32_t instruction);
+    [[nodiscard]] std::optional<CpuResult> StepSystem(std::uint32_t instruction);
     struct ExclusiveReservation {
         bool valid{};
         const GuestMemory* space{};
