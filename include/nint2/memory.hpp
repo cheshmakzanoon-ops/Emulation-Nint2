@@ -43,9 +43,27 @@ public:
     // pages before modifying data. Allows IPC receive without partial copying.
     [[nodiscard]] bool WriteBuffer(std::uint64_t address, std::span<const std::uint8_t> data);
 
+    // This synthetic reference engine uses one host execution thread.
+    // An exclusive stamp names the physical frame (so aliases share its
+    // monitor state) and a per-frame mutation generation. Guest pointers
+    // never escape into native host addresses.
+    struct ExclusiveRead {
+        std::uint64_t value{};
+        std::uint64_t frame_id{};
+        std::uint64_t generation{};
+    };
+    enum class ExclusiveStore : std::uint8_t { Stored, ReservationLost, Fault };
+    [[nodiscard]] std::optional<ExclusiveRead>
+    LoadExclusive(std::uint64_t address, unsigned bytes) const;
+    [[nodiscard]] ExclusiveStore StoreExclusive(
+        std::uint64_t address, unsigned bytes, std::uint64_t value,
+        std::uint64_t frame_id, std::uint64_t generation);
+
 private:
     struct Frame {
         std::unique_ptr<std::array<std::uint8_t, kPageSize>> data;
+        std::uint64_t id{};
+        std::uint64_t generation{};
     };
     struct Page {
         std::shared_ptr<Frame> frame;
@@ -60,6 +78,7 @@ private:
                                                       unsigned bytes, Access access) const;
     [[nodiscard]] bool WriteLe(std::uint64_t address, std::uint64_t value, unsigned bytes);
     std::uint64_t address_limit_;
+    std::uint64_t next_frame_id_{1};
     std::unordered_map<std::uint64_t, Page> pages_;
 };
 } // namespace nint2

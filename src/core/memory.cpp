@@ -38,7 +38,10 @@ bool GuestMemory::Map(std::uint64_t base, std::uint64_t size, Access access) {
     try {
         for (; inserted_bytes < size; inserted_bytes += kPageSize) {
             const auto index = (base + inserted_bytes) / kPageSize;
-            pages_.emplace(index, Page{std::make_shared<Frame>(), access});
+            if (next_frame_id_ == 0) throw std::bad_alloc{};
+            auto frame = std::make_shared<Frame>();
+            frame->id = next_frame_id_++;
+            pages_.emplace(index, Page{std::move(frame), access});
         }
     } catch (const std::bad_alloc&) {
         for (std::uint64_t offset = 0; offset < inserted_bytes; offset += kPageSize)
@@ -121,8 +124,10 @@ bool GuestMemory::WriteLe(std::uint64_t address, std::uint64_t value, unsigned b
     } catch (const std::bad_alloc&) { return false; }
     for (unsigned i = 0; i < bytes; ++i) {
         const auto addr = address + i;
-        (*pages_.at(addr / kPageSize).frame->data)[addr % kPageSize] =
+        auto& frame = *pages_.at(addr / kPageSize).frame;
+        (*frame.data)[addr % kPageSize] =
             static_cast<std::uint8_t>(value >> (8 * i));
+        ++frame.generation;
     }
     return true;
 }
@@ -144,7 +149,9 @@ bool GuestMemory::WriteBuffer(std::uint64_t address, std::span<const std::uint8_
     } catch (const std::bad_alloc&) { return false; }
     for (std::size_t i = 0; i < input.size(); ++i) {
         const auto addr = address + i;
-        (*pages_.at(addr / kPageSize).frame->data)[addr % kPageSize] = input[i];
+        auto& frame = *pages_.at(addr / kPageSize).frame;
+        (*frame.data)[addr % kPageSize] = input[i];
+        ++frame.generation;
     }
     return true;
 }
@@ -173,4 +180,40 @@ bool GuestMemory::Write8(std::uint64_t a, std::uint8_t v) { return WriteLe(a, v,
 bool GuestMemory::Write16(std::uint64_t a, std::uint16_t v) { return WriteLe(a, v, 2); }
 bool GuestMemory::Write32(std::uint64_t a, std::uint32_t v) { return WriteLe(a, v, 4); }
 bool GuestMemory::Write64(std::uint64_t a, std::uint64_t v) { return WriteLe(a, v, 8); }
+
+std::optional<GuestMemory::ExclusiveRead> GuestMemory::LoadExclusive(
+    std::uint64_t address, unsigned bytes) const {
+    if ((bytes != 1 && bytes != 2 && bytes != 4 && bytes != 8) ||
+        address % bytes != 0) return std::nullopt;
+    const auto value = ReadLe(address, bytes, Access::Read);
+    if (!value) return std::nullopt;
+    // Natural alignment and a page size divisible by 8 ensure all exclusive
+    // bytes belong to exactly one shared backing frame, including aliases.
+    const auto page = pages_.find(address / kPageSize);
+    if (page == pages_.end()) return std::nullopt;
+    return ExclusiveRead{*value, page->second.frame->id,
+                         page->second.frame->generation};
+}
+GuestMemory::ExclusiveStore GuestMemory::StoreExclusive(
+    std::uint64_t address, unsigned bytes, std::uint64_t value,
+    std::uint64_t frame_id, std::uint64_t generation) {
+    if ((bytes != 1 && bytes != 2 && bytes != 4 && bytes != 8) ||
+        address % bytes != 0 || address >= address_limit_ ||
+        bytes > address_limit_ - address)
+        return ExclusiveStore::Fault;
+    auto page = pages_.find(address / kPageSize);
+    if (page == pages_.end() ||
+        !HasAccess(page->second.access, Access::Write))
+        return ExclusiveStore::Fault;
+    const auto& frame = *page->second.frame;
+    // No matching reservation -> normal STXR failure without memory writes.
+    if (frame_id == 0 || frame.id != frame_id ||
+        frame.generation != generation)
+        return ExclusiveStore::ReservationLost;
+    // All condition checks and the write run in one host thread; no native
+    // locks or pointer aliases are exposed to guest code.
+    if (!WriteLe(address, value, bytes))
+        return ExclusiveStore::Fault;
+    return ExclusiveStore::Stored;
+}
 } // namespace nint2
