@@ -41,7 +41,7 @@ void CpuInterpreter::SetArithmeticFlags(std::uint64_t a, std::uint64_t b,
     a &= mask; b &= mask; result &= mask;
     const bool negative = (result & sign) != 0;
     const bool zero = result == 0;
-    const bool carry = subtraction ? a >= b : result < a;
+    const bool carry = subtraction ? a >= b : (result & mask) < a;
     const bool overflow = subtraction ? ((a ^ b) & (a ^ result) & sign) != 0
                                       : ((~(a ^ b)) & (a ^ result) & sign) != 0;
     context.nzcv = static_cast<std::uint8_t>((negative ? 8 : 0) | (zero ? 4 : 0) |
@@ -90,6 +90,14 @@ CpuResult CpuInterpreter::Step(GuestMemory& memory) {
     } else if ((op & 0xFFE0001FU) == 0xD4000001U) {
         result.stop = CpuStop::SupervisorCall;
         return result;
+    } else if ((op & 0x1F000000U) == 0x10000000U) {
+        // ADR / ADRP: signed 21-bit PC-relative byte/page address generation.
+        const std::uint64_t encoded = (((op >> 5) & 0x7ffffULL) << 2) | ((op >> 29) & 3);
+        const auto delta = SignExtend(encoded, 21);
+        const bool page = (op & 0x80000000U) != 0;
+        const auto base = page ? (pc & ~std::uint64_t{4095}) : pc;
+        const auto scaled = delta * (page ? 4096 : 1);
+        WriteReg(rd, base + static_cast<std::uint64_t>(scaled), true);
     } else if ((op & 0x7F800000U) == 0x52800000U ||
                (op & 0x7F800000U) == 0x72800000U ||
                (op & 0x7F800000U) == 0x12800000U) {

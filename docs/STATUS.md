@@ -37,3 +37,10 @@
 2. Expand original AArch64 instruction/ELF conformance corpus and fuzz harness.
 3. Implement deterministic guest process, synthetic SVC dispatch and IPC under independently designed interfaces.
 4. Validate additional Switch 2-specific interfaces only using lawful measured evidence.
+
+## 2026-10-21 interpreter correctness increment
+
+- Fixed ADD/ADDS W-register carry-flag calculation: compute unsigned carry after 32-bit result truncation.
+- Implemented architecturally encoded ADR/ADRP signed 21-bit PC-relative address generation (including negative offset and page offset cases), verified with original Clang-assembled encodings.
+- Tests actually run locally: CMake configure/build + CTest **5/5 GCC**, **5/5 Clang**, **5/5 GCC UBSan**. No new Windows/remote CI result is claimed.
+- Next: synthetic guest-only SVC boundary and independently authored ELF64 program that writes output and exits; **this will not claim any actual Switch 2 Horizon ABI**.

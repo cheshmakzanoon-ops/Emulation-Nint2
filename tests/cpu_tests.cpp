@@ -97,6 +97,26 @@ int main() {
         EXPECT(variant.Step(randmem).stop == CpuStop::Running);
         EXPECT(variant.context.x[0] == seed + 1);
     }
+    // Original Clang-assembled ADR/ADRP encodings; PC must be instruction-relative.
+    GuestMemory pc_relative(0x100000);
+    EXPECT(pc_relative.Map(0x3000, 4096, Access::Read | Access::Write));
+    EXPECT(pc_relative.Write32(0x3000, 0x100000c1)); // adr x1, +24
+    EXPECT(pc_relative.Write32(0x3004, 0x10ffffe2)); // adr x2, -4
+    EXPECT(pc_relative.Write32(0x3008, 0xb0000003)); // adrp x3, +1 page
+    EXPECT(pc_relative.Write32(0x300c, 0x90000004)); // adrp x4, +0 pages
+    EXPECT(pc_relative.Write32(0x3010, 0x310004c5)); // adds w5,w6,#1
+    EXPECT(pc_relative.Protect(0x3000, 4096, Access::Read | Access::Execute));
+    CpuInterpreter adr;
+    adr.context.pc = 0x3000;
+    adr.context.x[6] = UINT32_MAX;
+    for (unsigned i = 0; i < 5; ++i)
+        EXPECT(adr.Step(pc_relative).stop == CpuStop::Running);
+    EXPECT(adr.context.x[1] == 0x3018);
+    EXPECT(adr.context.x[2] == 0x3000);
+    EXPECT(adr.context.x[3] == 0x4000);
+    EXPECT(adr.context.x[4] == 0x3000);
+    EXPECT(adr.context.x[5] == 0);
+    EXPECT(adr.context.nzcv == 6); // zero=1, unsigned carry=1
     std::cout << "AArch64 arithmetic/branch/load-store/trap tests passed\n";
     return EXIT_SUCCESS;
 }
