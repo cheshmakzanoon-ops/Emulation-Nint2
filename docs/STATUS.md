@@ -154,7 +154,8 @@ LSLV W-register test expected 3 for `0x80000001 << (33 & 31)`, although the
 32-bit architectural result is 2. The literal oracle is corrected with an
 explanation; all existing randomized vectors remain enabled.
 
-This milestone (commit message `fix: validate ARM64 operands and recover queue allocation failures`):
+Published milestone [7b5063d](https://github.com/cheshmakzanoon-ops/Emulation-Nint2/commit/7b5063dbd85394cf715d690910ce9ac5beee81ea)
+(`fix: validate ARM64 operands and recover queue allocation failures`):
 
 - `src/core/cpu.cpp`, `cpu_extended.cpp`, new `cpu_sp_logical_tests.cpp` and
   `original_sp_logical.s`: correct SP/WSP reads for flag-setting immediate
@@ -206,7 +207,9 @@ JIT, GPU or retail game execution is claimed.
 
 The reliability prerequisites were published to main as
 [7b5063d](https://github.com/cheshmakzanoon-ops/Emulation-Nint2/commit/7b5063dbd85394cf715d690910ce9ac5beee81ea).
-This milestone is recorded by `feat: run compiled ARM64 C client-server transactions end to end`.
+The client/server milestone is published as
+[7e167fb](https://github.com/cheshmakzanoon-ops/Emulation-Nint2/commit/7e167fbbe6c7a7ad82b8ad74b002470802d56962)
+(`feat: run compiled ARM64 C client-server transactions end to end`).
 
 **Before/after proof:** the independently compiled original client reaches
 `EOR X18, X8, X1, ROR #13` (`0xcac13512`, PC `0x100ec`). The previous CPU from
@@ -312,8 +315,10 @@ encountered three incomplete/non-executable local linker outputs; relinking
 those generated files resolved the execution errors and the full suite passed.
 No source change or test exclusion was used to address that local artifact issue.
 
-**Limits and remaining gates:** Windows execution and latest GitHub Actions
-completion must be checked separately; no remote success is inferred from
-these local runs. Queue calls remain nonblocking; there is no peer-close
+**Limits and remaining gates:** the
+[GitHub Actions run for 7e167fb](https://github.com/cheshmakzanoon-ops/Emulation-Nint2/actions/runs/39653676144)
+was still queued when checked after publication. Windows execution remains
+pending; no remote success is inferred from these local runs. Queue calls remain
+nonblocking; there is no peer-close
 notification, blocking wait or deadlock detector. This is an original synthetic
 runtime milestone, with no JIT, renderer, Horizon ABI, firmware or game support.
