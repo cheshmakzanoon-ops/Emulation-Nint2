@@ -159,6 +159,48 @@ int main() {
         CHECK(fixture.cpu.context.nzcv == 15);
     }
 
+    // Known public CRC check values must also be produced by the INTERPRETER,
+    // not only by the independent reference implementation above.
+    for (bool castagnoli : {false, true}) {
+        Fixture fixture;
+        const unsigned index = castagnoli ? 4U : 0U;
+        const std::uint32_t instruction = kCrcWords[index];
+        const unsigned accumulator = (instruction >> 5) & 31U;
+        const unsigned operand = (instruction >> 16) & 31U;
+        const unsigned destination = instruction & 31U;
+        std::uint32_t running = UINT32_MAX;
+        for (unsigned char c : std::string_view{"123456789"}) {
+            fixture.cpu.context.x[accumulator] = running;
+            fixture.cpu.context.x[operand] = c;
+            CHECK(fixture.Run(index).stop == CpuStop::Running);
+            running = static_cast<std::uint32_t>(fixture.cpu.context.x[destination]);
+        }
+        CHECK(~running == (castagnoli ? UINT32_C(0xe3069283) :
+                                        UINT32_C(0xcbf43926)));
+    }
+
+    // AArch64 permits source and destination register overlap. The decoder
+    // must read the old accumulator/data before writing Rd.
+    {
+        GuestMemory memory(0x8000);
+        CHECK(memory.Map(0x2000, 4096, Access::Read | Access::Write));
+        constexpr unsigned reg = 7;
+        const std::uint32_t alias =
+            (kCrcWords[2] & ~((31U << 16) | (31U << 5) | 31U)) |
+            (reg << 16) | (reg << 5) | reg;
+        CHECK(memory.Write32(0x2000, alias));
+        CHECK(memory.Protect(0x2000, 4096, Access::Read | Access::Execute));
+        CpuInterpreter cpu;
+        cpu.context.pc = 0x2000;
+        cpu.context.nzcv = 0xe;
+        cpu.context.x[reg] = UINT64_C(0xfedcba9812345678);
+        const auto old = static_cast<std::uint32_t>(cpu.context.x[reg]);
+        const auto expected = Reference(old, old, 4, false);
+        CHECK(cpu.Step(memory).stop == CpuStop::Running);
+        CHECK(cpu.context.x[reg] == expected);
+        CHECK(cpu.context.nzcv == 0xe);
+    }
+
     // The complete source-authored CRC32/CRC32C class does not touch guest
     // memory other than fetching the instruction; only Rd and PC change.
     std::cout << "AArch64 CRC32/CRC32C: 8192 checked vectors, known IEEE/Castagnoli"
