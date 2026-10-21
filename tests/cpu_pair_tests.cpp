@@ -6,7 +6,7 @@
 
 #define CHECK(x) do { if (!(x)) { \
     std::cerr << "AArch64 atomic pair failure: " #x " at " << __LINE__ << '\n'; \
-    return EXIT_FAILURE; } } while (false)
+    std::exit(EXIT_FAILURE); } } while (false)
 
 namespace {
 using nint2::Access;
