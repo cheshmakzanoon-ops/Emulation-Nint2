@@ -59,13 +59,23 @@ def main():
         ("original_compiled_ipc", "-O0", "C guest IPC verified!\n"),
         ("original_division_c", "-O1", "AArch64 C divide verified!\n"),
         ("original_ror_c", "-O1", "Optimized ARM64 rotate!\n"),
+        ("original_lse_guest", "-O1", "Compiled ARM64 LSE atomics verified!\n"),
     ]
     for name, optimization, expected in cases:
         elf = output / f"{name}.elf"
-        run(flags + [optimization, "-ffreestanding", "-fno-builtin",
+        # The independent atomic C guest must emit actual ARMv8.1 LSE
+        # instructions; do not silently fall back to compiler helper calls.
+        extra = ["-march=armv8.1-a+lse", "-mgeneral-regs-only"] if name == "original_lse_guest" else []
+        run(flags + extra + [optimization, "-ffreestanding", "-fno-builtin",
                      "-fno-stack-protector", "-fno-unwind-tables",
                      FIXTURES / f"{name}.c", "-o", elf])
         run([runtime, "--run-synthetic", elf], expected)
+        if name == "original_lse_guest":
+            disassembly = subprocess.run([args.objdump, "-d", str(elf)], check=True,
+                                         capture_output=True, text=True, timeout=30).stdout
+            for instruction in ("ldaddal", "casal", "ldeoral", "ldar"):
+                if not re.search(r"\b" + instruction + r"\b", disassembly):
+                    raise RuntimeError("compiled LSE guest missing instruction: " + instruction)
         if name == "original_ror_c":
             disassembly = subprocess.run([args.objdump, "-d", str(elf)], check=True,
                                          capture_output=True, text=True, timeout=30).stdout
@@ -84,7 +94,7 @@ def main():
     run([build / ("nint2_compiled_rpc_tests" + extension), "--run-pair", client, server])
     run([runtime, "--run-synthetic-pair", client, server],
         "C RPC client: 64 replies verified!\nC RPC server: 64 requests processed!\n")
-    print("PASS: four original C guests, original assembly pair and compiled C RPC pair")
+    print("PASS: five original C guests (including LSE), assembly pair and compiled C RPC pair")
     return 0
 
 
