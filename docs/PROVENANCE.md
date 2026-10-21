@@ -34,3 +34,16 @@ The repository owner has **not selected a final project license**. Public visibi
 - [ ] Every shipped emulator feature has tests and limitations documented in STATUS.md.
 - [ ] No unsupported claim of Nintendo Switch 2 retail-game compatibility.
 - [ ] Final release license and jurisdiction-specific legal review completed.
+
+
+## Original CPU operand regression sources — 2026-10-21
+
+The SP/WSP/ZR, logical ROR and LSLV corrections reference Arm's public
+[Instruction Set Reference Guide, 100076_0100_00_en](https://documentation-service.arm.com/static/6245c734b059dc5ff9a8bdab),
+sections D2.10 (ADDS immediate), D2.14–15 (AND immediate/shifted), D2.78–79
+(EOR immediate/shifted), and D2.95 (LSLV). The implementation and assembly
+fixtures were written independently; no external emulator code was imported.
+`tests/verify_assembler_fixtures.py` checks the original assembly encodings
+against Clang's assembler; C++20 `std::rotr` and literal arithmetic expectations
+provide separate value oracles. These are AArch64 architectural claims, not
+measurements of Nintendo Switch 2 hardware.

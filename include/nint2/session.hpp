@@ -38,6 +38,12 @@ public:
     [[nodiscard]] std::string_view Stderr() const noexcept { return stderr_; }
     [[nodiscard]] std::size_t HandleCount() const noexcept { return handles_.Size(); }
     [[nodiscard]] std::uint64_t TotalSteps() const noexcept { return steps_; }
+    // Host-owned bootstrap authority; imports an attenuated capability before
+    // guest execution without depending on compiler-generated startup steps.
+    // This does not introduce a guest-visible service or share address spaces.
+    [[nodiscard]] kernel::Result ImportQueue(const kernel::HandleTable& owner,
+                                             std::uint32_t handle,
+                                             kernel::Right rights);
     // Host-authorized test harness grant only, not a guest-visible SVC.
     // Guest sessions retain distinct memory/register/handle namespaces.
     [[nodiscard]] kernel::Result GrantQueueTo(std::uint32_t handle,

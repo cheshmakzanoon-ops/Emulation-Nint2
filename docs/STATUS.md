@@ -143,3 +143,60 @@ All of the following commits were pushed to the existing **main** branch:
 **Not yet verified:** running the full current C++ emulator and CTest suite in this environment (direct GitHub cloning failed due DNS/network restrictions), a successful Linux/Windows/ASan/UBSan GitHub Actions run for these commits, or independently linked guests running successfully through the complete committed C++ runtime. As of this note the latest GitHub Actions run is queued. Do not count registered CTest entries (29) as passed tests.
 
 **Next verification gate:** await actual Actions execution; inspect job logs and fix failures, then compare CI cross-linked guest traces against source-encoded fixture runs. These increments do not implement any native Nintendo Switch 2 firmware, Horizon services, proprietary container/format, GPU or game execution.
+
+
+## 2026-10-21 full runtime verification and correctness repairs
+
+The previously pending runtime gate was executed locally against the complete
+repository on Linux x64 (GCC 13.3.0, CMake 3.28.3, Clang/LLD 18.1.3).
+The unchanged `22093af` baseline built but passed **28/29** CTest entries: the
+LSLV W-register test expected 3 for `0x80000001 << (33 & 31)`, although the
+32-bit architectural result is 2. The literal oracle is corrected with an
+explanation; all existing randomized vectors remain enabled.
+
+This milestone (commit message `fix: validate ARM64 operands and recover queue allocation failures`):
+
+- `src/core/cpu.cpp`, `cpu_extended.cpp`, new `cpu_sp_logical_tests.cpp` and
+  `original_sp_logical.s`: correct SP/WSP reads for flag-setting immediate
+  arithmetic, SP/WSP writes for non-flag-setting logical immediates, and ROR
+  shifted logical operands. Three distinct failures were reproduced before the
+  fixes. New tests include 4,096 deterministic rotate-oracle cases, zero/max
+  rotations, NZCV, SP/ZR distinction, width truncation and invalid encodings.
+- `include/nint2/kernel.hpp`, new `kernel_resource_tests.cpp`: remove an incorrect
+  `noexcept` on allocating queue construction. The regression previously aborted
+  with `std::bad_alloc`; it now returns OutOfMemory and preserves queue contents,
+  capabilities and handle IDs across injected creation/send/grant failures.
+- `include/nint2/session.hpp`, `src/core/session.cpp`, new
+  `session_import_tests.cpp`: a host-only ImportQueue API provisions attenuated
+  capabilities before executing guest code. Tests verify separate namespaces,
+  rights, closed/stale handles, exhaustion/recovery and surviving queue references.
+- `tests/multi_guest_elf_tests.cpp`: integration success requires both guest exit
+  codes to be zero. Mutated sender/receiver programs that still transfer PING!
+  but exit 7/9 are rejected.
+- `CMakeLists.txt`, `tests/verify_assembler_fixtures.py`: register new tests and
+  independently verify the new 17-word original SP/logical assembly fixture.
+
+**Executed validation:**
+
+```sh
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DNINT2_BUILD_TESTS=ON
+cmake --build build --parallel 4
+ctest --test-dir build --output-on-failure
+python3 tests/verify_assembler_fixtures.py
+```
+
+Full CTest: **32/32 passed**. Original assembly/source parity: **9/9 mappings**
+passed. Independently cross-compiled with Clang/LLD 18 and executed through the
+actual CLI: original C checksum (**519 instructions**), original C IPC (**755**),
+optimized C division (**47**), optimized C rotation (**24**), all with exact
+expected stdout and exit 0. Independently linked sender/receiver ELFs exchanged
+PING! with **24 scheduled instructions** and both exit codes zero. These close
+the earlier local execution gaps; they do not imply completed remote CI.
+
+The complete **32/32** CTest suite also passed GCC ASan+UBSan, configured
+with `-fsanitize=address,undefined -fno-omit-frame-pointer`, and executed with
+`ASAN_OPTIONS=detect_leaks=1:halt_on_error=1` and
+`UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1`. The approved execution
+context provided the process-metadata access required by LeakSanitizer.
+Windows and remote CI remain unverified. No native Switch 2 interfaces,
+JIT, GPU or retail game execution is claimed.

@@ -142,7 +142,9 @@ std::optional<CpuResult> CpuInterpreter::StepExtended(GuestMemory& memory, std::
         const auto value = operation == 0 ? (a & *bitmask) :
                            operation == 1 ? (a | *bitmask) :
                            operation == 2 ? (a ^ *bitmask) : (a & *bitmask);
-        WriteReg(rt, value, wide);
+        // AND/ORR/EOR immediate may write SP; ANDS/TST writes ZR instead.
+        // Rn==31 remains the zero register in all logical-immediate forms.
+        WriteReg(rt, value, wide, operation != 3);
         if (operation == 3) {
             const auto width_mask = wide ? UINT64_MAX : std::uint64_t{UINT32_MAX};
             const auto sign = wide ? (std::uint64_t{1} << 63) : (std::uint64_t{1} << 31);

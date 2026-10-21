@@ -18,7 +18,10 @@ namespace {
         if (wide) return static_cast<std::uint64_t>(static_cast<std::int64_t>(value) >> shift);
         return static_cast<std::uint32_t>(static_cast<std::int32_t>(value) >> shift);
     }
-    return 0;
+    // Logical shifted-register instructions also accept ROR. The zero case
+    // must not shift left by the register width (undefined in host C++).
+    const unsigned width = wide ? 64 : 32;
+    return shift == 0 ? value : ((value >> shift) | (value << (width - shift))) & mask;
 }
 } // namespace
 
@@ -118,7 +121,9 @@ CpuResult CpuInterpreter::Step(GuestMemory& memory) {
         if (sh > 1) return {CpuStop::UndefinedInstruction, 1, pc, op};
         const bool sub = (op & (1U << 30)) != 0;
         const bool flags = (op & (1U << 29)) != 0;
-        const auto a = ReadReg(rn, wide, !flags);
+        // Rn==31 is SP regardless of S. Only the destination changes to ZR
+        // for ADDS/SUBS (including CMN/CMP), so comparing SP reads its value.
+        const auto a = ReadReg(rn, wide, true);
         const std::uint64_t b = std::uint64_t{(op >> 10) & 4095} << (12 * sh);
         const std::uint64_t value = sub ? a - b : a + b;
         if (flags) SetArithmeticFlags(a, b, value, wide, sub);
@@ -129,7 +134,7 @@ CpuResult CpuInterpreter::Step(GuestMemory& memory) {
         const bool arithmetic = (op & 0x01000000U) != 0;
         const unsigned kind = (op >> 22) & 3;
         const unsigned shift = (op >> 10) & 63;
-        if (kind == 3 || (!wide && shift >= 32))
+        if ((arithmetic && kind == 3) || (!wide && shift >= 32))
             return {CpuStop::UndefinedInstruction, 1, pc, op};
         const auto a = ReadReg(rn, wide);
         const auto shifted = Shift(ReadReg((op >> 16) & 31, wide), shift, kind, wide);

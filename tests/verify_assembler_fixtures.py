@@ -22,6 +22,7 @@ FIXTURES = [
     ("original_divide_shift.s", "cpu_divide_shift_tests.cpp", "instructions", 10),
     ("original_carry.s", "cpu_carry_tests.cpp", "code", 10),
     ("original_extract.s", "cpu_extract_tests.cpp", "words", 9),
+    ("original_sp_logical.s", "cpu_sp_logical_tests.cpp", "words", 17),
 ]
 
 def host_words(path: Path, name: str, count: int) -> list[int]:

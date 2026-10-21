@@ -20,6 +20,12 @@ SyntheticSession::SyntheticSession(GuestMemory& memory, std::uint64_t entry,
     cpu_.context.sp = stack_top;
 }
 
+kernel::Result SyntheticSession::ImportQueue(const kernel::HandleTable& owner,
+                                             std::uint32_t handle,
+                                             kernel::Right rights) {
+    return owner.GrantTo(handle, handles_, rights);
+}
+
 kernel::Result SyntheticSession::GrantQueueTo(std::uint32_t handle,
                                                SyntheticSession& recipient,
                                                kernel::Right rights) const {

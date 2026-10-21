@@ -36,7 +36,9 @@ public:
     static constexpr std::size_t kMaxMessage = 4096;
     static constexpr std::size_t kMaxQueuedBytes = 65536;
     static constexpr std::size_t kMaxMessages = 64;
-    explicit MessageQueue(std::size_t capacity) noexcept : capacity_(capacity) {}
+    // std::deque construction may allocate. Allow bad_alloc to reach the
+    // HandleTable::CreateQueue boundary instead of terminating the host.
+    explicit MessageQueue(std::size_t capacity) : capacity_(capacity) {}
     [[nodiscard]] Result Send(std::span<const std::uint8_t> message);
     [[nodiscard]] Result Peek(std::span<std::uint8_t> destination) const;
     [[nodiscard]] Result Consume() noexcept;

@@ -67,7 +67,9 @@ int main() {
     EXPECT(x[3] == 0xfffffff2ULL);
     EXPECT(x[6] == UINT64_MAX / 10);
     EXPECT(x[9] == (std::uint64_t{1} << 63));
-    EXPECT(x[12] == 3);
+    // W-form LSLV uses 33 modulo 32 = 1; the high bit is discarded, not
+    // rotated into bit 0: (0x80000001 << 1) & 0xffffffff = 0x00000002.
+    EXPECT(x[12] == 2);
     EXPECT(x[15] == (std::uint64_t{1} << 62));
     EXPECT(x[18] == 0xf8000000ULL);
     EXPECT(x[21] == 0xf000000000000000ULL);

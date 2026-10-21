@@ -74,7 +74,8 @@ std::vector<std::uint8_t> ReadFile(const char* path) {
 }
 
 bool ExecutePair(std::span<const std::uint8_t> producer_elf,
-                 std::span<const std::uint8_t> consumer_elf) {
+                 std::span<const std::uint8_t> consumer_elf,
+                 bool report_failure = true) {
     using nint2::Access;
     using nint2::ElfError;
     using nint2::GuestMemory;
@@ -83,8 +84,9 @@ bool ExecutePair(std::span<const std::uint8_t> producer_elf,
     using nint2::SyntheticScheduler;
     using nint2::SyntheticSession;
     using nint2::kernel::Right;
-    const auto fail = [](const char* reason) {
-        std::cerr << "Two-ELF integration failed: " << reason << '\n';
+    const auto fail = [report_failure](const char* reason) {
+        if (report_failure)
+            std::cerr << "Two-ELF integration failed: " << reason << '\n';
         return false;
     };
     GuestMemory producer_memory(0x400000);
@@ -121,6 +123,10 @@ bool ExecutePair(std::span<const std::uint8_t> producer_elf,
     const auto result = scheduler.Run(256);
     if (result.stop != SchedulerStop::Completed || result.exited != 2 ||
         result.failed != 0) return fail("not all guest processes exited cleanly");
+    // Scheduler completion means both guests reached Exit, regardless of the
+    // guest's status code. Integration success additionally requires exit 0.
+    if (producer.Run(0).exit_code != 0 || consumer.Run(0).exit_code != 0)
+        return fail("a guest reported unsuccessful execution");
     if (consumer.Stdout() != "PING!" || !producer.Stdout().empty())
         return fail("IPC payload or output mismatch");
     if (producer.HandleCount() != 0 || consumer.HandleCount() != 1 ||
@@ -150,5 +156,17 @@ int main(int argc, char** argv) {
     if (argc != 1) return EXIT_FAILURE;
     const auto sender = OriginalElf(kSender, kMessage);
     const auto receiver = OriginalElf(kReceiver);
-    return ExecutePair(sender, receiver) ? EXIT_SUCCESS : EXIT_FAILURE;
+    if (!ExecutePair(sender, receiver)) return EXIT_FAILURE;
+    // Both mutations preserve the successful PING! transfer and cleanup.
+    // They used to pass because the harness checked only scheduler completion.
+    auto failing_sender = kSender;
+    failing_sender[11] = 0xd28000e0; // MOV X0,#7 before Exit
+    if (ExecutePair(OriginalElf(failing_sender, kMessage), receiver, false))
+        return EXIT_FAILURE;
+    auto failing_receiver = kReceiver;
+    failing_receiver[14] = 0xd2800120; // MOV X0,#9 before Exit
+    if (ExecutePair(sender, OriginalElf(failing_receiver), false))
+        return EXIT_FAILURE;
+    std::cout << "Nonzero sender and receiver exits correctly rejected\n";
+    return EXIT_SUCCESS;
 }
