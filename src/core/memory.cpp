@@ -1,5 +1,10 @@
 #include "nint2/memory.hpp"
 #include <new>
+#include <algorithm>
+#include <cstring>
+#include <unordered_set>
+#include <utility>
+#include <vector>
 
 namespace nint2 {
 GuestMemory::GuestMemory(std::uint64_t address_limit) noexcept
@@ -132,26 +137,49 @@ bool GuestMemory::WriteLe(std::uint64_t address, std::uint64_t value, unsigned b
     return true;
 }
 
-bool GuestMemory::WriteBuffer(std::uint64_t address, std::span<const std::uint8_t> input) {
-    if (input.empty()) return true;
-    if (address >= address_limit_ || input.size() > address_limit_ - address) return false;
-    for (std::size_t i = 0; i < input.size(); ++i) {
-        const auto addr = address + i;
-        const auto it = pages_.find(addr / kPageSize);
-        if (it == pages_.end() || !HasAccess(it->second.access, Access::Write)) return false;
-    }
+bool GuestMemory::WriteBuffer(std::uint64_t address,
+                              std::span<const std::uint8_t> data) {
+    if (data.empty()) return true;
+    if (address >= address_limit_ || data.size() > address_limit_ - address)
+        return false;
+    struct Chunk {
+        Frame* frame;
+        std::size_t page_offset, source_offset, length;
+    };
+    std::vector<Chunk> chunks;
+    std::vector<std::pair<Frame*, std::unique_ptr<std::array<std::uint8_t,kPageSize>>>> fresh;
+    std::unordered_set<Frame*> needs_backing;
+    // Validate every destination page BEFORE mutating backing frames or bytes.
+    // The input may span writable and unmapped/protected pages in one request.
     try {
-        for (std::size_t i = 0; i < input.size(); ++i) {
-            const auto addr = address + i;
-            auto& backing = pages_.at(addr / kPageSize).frame->data;
-            if (!backing) backing = std::make_unique<std::array<std::uint8_t, kPageSize>>();
+        chunks.reserve(1 + (data.size() - 1) / kPageSize);
+        std::size_t i = 0;
+        while (i < data.size()) {
+            const auto current = address + i;
+            const auto page = pages_.find(current / kPageSize);
+            if (page == pages_.end() ||
+                !HasAccess(page->second.access, Access::Write)) return false;
+            const auto offset = static_cast<std::size_t>(current % kPageSize);
+            const auto count = std::min<std::size_t>(data.size() - i, kPageSize - offset);
+            Frame* const frame = page->second.frame.get();
+            chunks.push_back({frame, offset, i, count});
+            if (!frame->data && needs_backing.insert(frame).second)
+                fresh.emplace_back(frame,
+                    std::make_unique<std::array<std::uint8_t,kPageSize>>());
+            i += count;
         }
-    } catch (const std::bad_alloc&) { return false; }
-    for (std::size_t i = 0; i < input.size(); ++i) {
-        const auto addr = address + i;
-        auto& frame = *pages_.at(addr / kPageSize).frame;
-        (*frame.data)[addr % kPageSize] = input[i];
-        ++frame.generation;
+    } catch (const std::bad_alloc&) {
+        return false;
+    }
+    // All allocations are complete, so the remaining commit cannot partially
+    // fault. Aliases share the same physical frame and its new backing.
+    for (auto& [frame, backing] : fresh) frame->data = std::move(backing);
+    for (const auto& chunk : chunks) {
+        std::memcpy(chunk.frame->data->data() + chunk.page_offset,
+                    data.data() + chunk.source_offset, chunk.length);
+        // A single generation bump per page chunk is enough to invalidate
+        // all exclusive reservations in this single-thread host interpreter.
+        ++chunk.frame->generation;
     }
     return true;
 }
