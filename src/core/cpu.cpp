@@ -209,6 +209,7 @@ CpuResult CpuInterpreter::Step(GuestMemory& memory) {
         next = target;
     } else {
         if (const auto atomic = StepAtomic(memory, op)) return *atomic;
+        if (const auto system = StepSystem(op)) return *system;
         if (const auto extended = StepExtended(memory, op)) return *extended;
         return {CpuStop::UndefinedInstruction, 1, pc, op};
     }
