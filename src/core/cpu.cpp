@@ -152,7 +152,8 @@ CpuResult CpuInterpreter::Step(GuestMemory& memory) {
                                                          (v == 0 ? 4 : 0));
             }
         }
-    } else if ((op & 0x3B000000U) == 0x39000000U && ((op >> 22) & 3) <= 1) {
+    } else if ((op & 0x3B000000U) == 0x39000000U &&
+               (op & (1U << 26)) == 0 && ((op >> 22) & 3) <= 1) {
         // Unsigned-offset LDR/STR (8,16,32,64 bits), base register may be SP.
         const unsigned sz = (op >> 30) & 3;
         const unsigned bytes = 1U << sz;

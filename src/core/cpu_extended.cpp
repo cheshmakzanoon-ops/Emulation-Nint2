@@ -102,21 +102,41 @@ std::optional<CpuResult> CpuInterpreter::StepExtended(GuestMemory& memory, std::
         if (writeback) WriteReg(rn, base + static_cast<std::uint64_t>(offset), true, true);
         return done();
     }
+    if ((op & 0x3B000000U) == 0x39000000U && ((op >> 22) & 3) >= 2) {
+        // LDRSB/LDRSH/LDRSW unsigned scaled offsets. Opc==2 extends to X,
+        // opc==3 extends an 8/16-bit value to W (zeroing X upper bits).
+        const unsigned opc = (op >> 22) & 3;
+        const unsigned size = (op >> 30) & 3;
+        const unsigned bytes = 1U << size;
+        if ((op & (1U << 26)) || bytes == 8 || (opc == 3 && bytes > 2))
+            return illegal();
+        const auto address = ReadReg(rn, true, true) +
+                             (std::uint64_t{(op >> 10) & 4095} << size);
+        const auto value = Load(memory, address, bytes);
+        if (!value) return fault(address);
+        WriteReg(rt, static_cast<std::uint64_t>(SignedImmediate(*value, bytes * 8)),
+                 opc == 2);
+        return done();
+    }
     if ((op & 0x3B200000U) == 0x38000000U) {
         // STUR/LDUR, plus ST(R)/LD(R) post-index and pre-index forms.
         const unsigned opc = (op >> 22) & 3;
         const unsigned mode = (op >> 10) & 3;
-        if ((op & (1U << 26)) || opc > 1 || mode == 2) return illegal();
         const unsigned bytes = 1U << ((op >> 30) & 3);
+        if ((op & (1U << 26)) || mode == 2 ||
+            (opc >= 2 && (bytes == 8 || (opc == 3 && bytes > 2))))
+            return illegal();
         const bool writeback = mode != 0;
         if (writeback && rn != 31 && rn == rt) return illegal();
         const auto base = ReadReg(rn, true, true);
         const auto offset = SignedImmediate((op >> 12) & 0x1ff, 9);
         const auto address = base + (mode == 1 ? 0 : static_cast<std::uint64_t>(offset));
-        if (opc == 1) {
+        if (opc != 0) {
             const auto value = Load(memory, address, bytes);
             if (!value) return fault(address);
-            WriteReg(rt, *value, bytes == 8);
+            WriteReg(rt, opc >= 2 ?
+                     static_cast<std::uint64_t>(SignedImmediate(*value, bytes * 8)) : *value,
+                     opc == 2 || (opc == 1 && bytes == 8));
         } else if (!Store(memory, address, ReadReg(rt, bytes == 8), bytes)) {
             return fault(address);
         }
@@ -127,10 +147,11 @@ std::optional<CpuResult> CpuInterpreter::StepExtended(GuestMemory& memory, std::
         // Scalar register-offset LDR/STR: UXTW/LSL/SXTW/SXTX offsets.
         const unsigned opc = (op >> 22) & 3;
         const unsigned option = (op >> 13) & 7;
-        if ((op & (1U << 26)) || opc > 1 ||
+        if ((op & (1U << 26)) ||
             (option != 2 && option != 3 && option != 6 && option != 7)) return illegal();
         const unsigned sz = (op >> 30) & 3;
         const unsigned bytes = 1U << sz;
+        if (opc >= 2 && (bytes == 8 || (opc == 3 && bytes > 2))) return illegal();
         const unsigned rm = (op >> 16) & 31;
         const auto raw = ReadReg(rm, option == 3 || option == 7);
         std::uint64_t offset = raw;
@@ -138,10 +159,12 @@ std::optional<CpuResult> CpuInterpreter::StepExtended(GuestMemory& memory, std::
             offset = static_cast<std::uint64_t>(static_cast<std::int64_t>(static_cast<std::int32_t>(raw)));
         const unsigned scale = (op & (1U << 12)) ? sz : 0;
         const auto address = ReadReg(rn, true, true) + (offset << scale);
-        if (opc == 1) {
+        if (opc != 0) {
             const auto value = Load(memory, address, bytes);
             if (!value) return fault(address);
-            WriteReg(rt, *value, bytes == 8);
+            WriteReg(rt, opc >= 2 ?
+                     static_cast<std::uint64_t>(SignedImmediate(*value, bytes * 8)) : *value,
+                     opc == 2 || (opc == 1 && bytes == 8));
         } else if (!Store(memory, address, ReadReg(rt, bytes == 8), bytes)) {
             return fault(address);
         }
