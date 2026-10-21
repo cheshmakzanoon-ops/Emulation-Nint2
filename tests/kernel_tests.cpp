@@ -60,6 +60,37 @@ int main() {
     EXPECT(limited.Consume().value == 4096);
     EXPECT(limited.Send(abc).Ok());
     EXPECT(limited.QueuedBytes() == 15 * 4096 + 3);
-    std::cout << "Kernel handle table, rights and bounded IPC queue tests passed\n";
+    // Original host-only cross-session capability grants: separate handle IDs,
+    // shared queue storage, no authority amplification and no stale-handle reuse.
+    HandleTable producer(3);
+    HandleTable consumer(1);
+    const auto source = producer.CreateQueue(2);
+    EXPECT(source.Ok() && source.value == 1);
+    const auto granted = producer.GrantTo(static_cast<std::uint32_t>(source.value),
+                                          consumer, Right::Receive);
+    EXPECT(granted.Ok() && granted.value == 1);
+    EXPECT(consumer.Size() == 1 && producer.Size() == 1);
+    EXPECT(consumer.Check(1, Right::Send) == Error::PermissionDenied);
+    EXPECT(consumer.Check(1, Right::Duplicate) == Error::PermissionDenied);
+    EXPECT(consumer.GrantTo(1, producer, Right::Receive).error == Error::PermissionDenied);
+    EXPECT(producer.GrantTo(1, consumer, Right::Send).error == Error::Exhausted);
+    EXPECT(producer.GrantTo(1, consumer, Right::None).error == Error::PermissionDenied);
+    EXPECT(producer.GrantTo(1, consumer, static_cast<Right>(0x80)).error == Error::PermissionDenied);
+    const auto source_queue = producer.Get(1, Right::Send);
+    const auto recipient_queue = consumer.Get(1, Right::Receive);
+    EXPECT(source_queue && source_queue == recipient_queue);
+    EXPECT(source_queue->Send(abc).Ok());
+    EXPECT(producer.Close(1).Ok());
+    EXPECT(producer.GrantTo(1, consumer, Right::Receive).error == Error::InvalidHandle);
+    EXPECT(recipient_queue->Depth() == 1);
+    std::array<std::uint8_t, 3> cross_process{};
+    EXPECT(recipient_queue->Peek(cross_process).Ok() && cross_process == abc);
+    EXPECT(recipient_queue->Consume().Ok() && recipient_queue->Depth() == 0);
+    EXPECT(consumer.Close(1).Ok());
+    EXPECT(consumer.Get(1, Right::Receive) == nullptr);
+    const auto next = consumer.CreateQueue(1);
+    EXPECT(next.Ok() && next.value > granted.value);
+
+    std::cout << "Kernel handle table, rights, cross-session grants and IPC tests passed\n";
     return EXIT_SUCCESS;
 }

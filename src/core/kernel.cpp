@@ -79,6 +79,16 @@ Result HandleTable::Duplicate(std::uint32_t handle, Right requested) {
         return {Error::PermissionDenied, 0};
     return Insert(it->second.queue, requested);
 }
+Result HandleTable::GrantTo(std::uint32_t handle, HandleTable& recipient,
+                            Right requested) const {
+    const auto it = entries_.find(handle);
+    if (handle == 0 || it == entries_.end()) return {Error::InvalidHandle, 0};
+    if (!HasRights(it->second.rights, Right::Duplicate))
+        return {Error::PermissionDenied, 0};
+    if (!ValidRights(requested) || !HasRights(it->second.rights, requested))
+        return {Error::PermissionDenied, 0};
+    return recipient.Insert(it->second.queue, requested);
+}
 Result HandleTable::Close(std::uint32_t handle) noexcept {
     if (handle == 0 || entries_.erase(handle) != 1) return {Error::InvalidHandle, 0};
     return {Error::None, 0};

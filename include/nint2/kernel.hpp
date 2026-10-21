@@ -59,6 +59,10 @@ public:
         : capacity_(capacity) {}
     [[nodiscard]] Result CreateQueue(std::size_t queue_capacity);
     [[nodiscard]] Result Duplicate(std::uint32_t handle, Right requested);
+    // Host-controlled capability grant into a distinct guest handle namespace.
+    // Requires Duplicate authority; never removes the sender's handle/rights.
+    [[nodiscard]] Result GrantTo(std::uint32_t handle, HandleTable& recipient,
+                                 Right requested) const;
     [[nodiscard]] Result Close(std::uint32_t handle) noexcept;
     [[nodiscard]] std::shared_ptr<MessageQueue> Get(std::uint32_t handle,
                                                     Right required) const noexcept;
