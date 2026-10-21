@@ -20,6 +20,12 @@ SyntheticSession::SyntheticSession(GuestMemory& memory, std::uint64_t entry,
     cpu_.context.sp = stack_top;
 }
 
+kernel::Result SyntheticSession::GrantQueueTo(std::uint32_t handle,
+                                               SyntheticSession& recipient,
+                                               kernel::Right rights) const {
+    return handles_.GrantTo(handle, recipient.handles_, rights);
+}
+
 SessionResult SyntheticSession::Outcome(SessionStop stop, CpuStop cpu_stop,
                                         std::uint64_t fault,
                                         std::uint64_t service) const noexcept {

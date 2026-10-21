@@ -37,6 +37,12 @@ public:
     [[nodiscard]] std::string_view Stdout() const noexcept { return stdout_; }
     [[nodiscard]] std::string_view Stderr() const noexcept { return stderr_; }
     [[nodiscard]] std::size_t HandleCount() const noexcept { return handles_.Size(); }
+    [[nodiscard]] std::uint64_t TotalSteps() const noexcept { return steps_; }
+    // Host-authorized test harness grant only, not a guest-visible SVC.
+    // Guest sessions retain distinct memory/register/handle namespaces.
+    [[nodiscard]] kernel::Result GrantQueueTo(std::uint32_t handle,
+                                              SyntheticSession& recipient,
+                                              kernel::Right rights) const;
 
 private:
     [[nodiscard]] std::uint64_t HandleWrite();
