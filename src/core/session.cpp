@@ -4,6 +4,7 @@
 #include <limits>
 #include <span>
 #include <new>
+#include <stdexcept>
 #include <string>
 
 namespace nint2 {
