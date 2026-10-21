@@ -21,7 +21,7 @@ constexpr bool HasRights(Right owned, Right required) noexcept {
 
 enum class Error : std::uint8_t {
     None, InvalidHandle, PermissionDenied, InvalidArgument, Exhausted,
-    Empty, Full, BufferTooSmall, OutOfMemory
+    Empty, Full, BufferTooSmall, OutOfMemory, PeerClosed
 };
 struct Result {
     Error error{Error::None};
@@ -45,7 +45,17 @@ public:
     [[nodiscard]] std::size_t Depth() const noexcept { return messages_.size(); }
     [[nodiscard]] std::size_t QueuedBytes() const noexcept { return queued_bytes_; }
     [[nodiscard]] std::size_t Capacity() const noexcept { return capacity_; }
+    // Readiness is an advisory snapshot for a cooperative synthetic scheduler.
+    // Queued reads remain readable after the final sender closes.
+    [[nodiscard]] Result Readiness(Right direction) const noexcept;
+    [[nodiscard]] std::size_t SenderCount() const noexcept { return senders_; }
+    [[nodiscard]] std::size_t ReceiverCount() const noexcept { return receivers_; }
 private:
+    friend class HandleTable;
+    void Attach(Right rights) noexcept;
+    void Detach(Right rights) noexcept;
+    std::size_t senders_{};
+    std::size_t receivers_{};
     std::size_t capacity_{};
     std::size_t queued_bytes_{};
     std::deque<std::vector<std::uint8_t>> messages_;
@@ -59,6 +69,16 @@ public:
     static constexpr std::size_t kDefaultCapacity = 256;
     explicit HandleTable(std::size_t capacity = kDefaultCapacity) noexcept
         : capacity_(capacity) {}
+    ~HandleTable() noexcept;
+    HandleTable(const HandleTable&) = delete;
+    HandleTable& operator=(const HandleTable&) = delete;
+    HandleTable(HandleTable&&) = delete;
+    HandleTable& operator=(HandleTable&&) = delete;
+    // Retirement releases all active peer references without changing the
+    // diagnostic number of still-open handles. Safe to call more than once.
+    void Retire() noexcept;
+    [[nodiscard]] bool Active() const noexcept { return active_; }
+    [[nodiscard]] Result Status(std::uint32_t handle, Right direction) const noexcept;
     [[nodiscard]] Result CreateQueue(std::size_t queue_capacity);
     [[nodiscard]] Result Duplicate(std::uint32_t handle, Right requested);
     // Host-controlled capability grant into a distinct guest handle namespace.
@@ -77,6 +97,7 @@ private:
     };
     [[nodiscard]] Result Insert(std::shared_ptr<MessageQueue> queue, Right rights);
     std::size_t capacity_{};
+    bool active_{true};
     std::uint32_t next_handle_{1};
     std::unordered_map<std::uint32_t, Entry> entries_;
 };

@@ -9,6 +9,27 @@ constexpr bool ValidRights(Right rights) noexcept {
     return bits != 0 && (bits & ~std::uint8_t{7}) == 0;
 }
 }
+void MessageQueue::Attach(Right rights) noexcept {
+    if (HasRights(rights, Right::Send)) ++senders_;
+    if (HasRights(rights, Right::Receive)) ++receivers_;
+}
+void MessageQueue::Detach(Right rights) noexcept {
+    if (HasRights(rights, Right::Send)) --senders_;
+    if (HasRights(rights, Right::Receive)) --receivers_;
+}
+Result MessageQueue::Readiness(Right direction) const noexcept {
+    if (direction == Right::Receive) {
+        if (!messages_.empty()) return {Error::None, messages_.front().size()};
+        return {senders_ == 0 ? Error::PeerClosed : Error::Empty, 0};
+    }
+    if (direction == Right::Send) {
+        if (receivers_ == 0) return {Error::PeerClosed, 0};
+        if (messages_.size() >= capacity_ || queued_bytes_ >= kMaxQueuedBytes)
+            return {Error::Full, 0};
+        return {Error::None, kMaxQueuedBytes - queued_bytes_};
+    }
+    return {Error::InvalidArgument, 0};
+}
 Result MessageQueue::Send(std::span<const std::uint8_t> message) {
     if (message.size() > kMaxMessage) return {Error::InvalidArgument, 0};
     if (capacity_ == 0 || capacity_ > kMaxMessages) return {Error::InvalidArgument, 0};
@@ -36,15 +57,32 @@ Result MessageQueue::Consume() noexcept {
     messages_.pop_front();
     return {Error::None, size};
 }
+HandleTable::~HandleTable() noexcept { Retire(); }
+void HandleTable::Retire() noexcept {
+    if (!active_) return;
+    active_ = false;
+    for (const auto& [handle, entry] : entries_) {
+        (void)handle;
+        entry.queue->Detach(entry.rights);
+    }
+}
+Result HandleTable::Status(std::uint32_t handle, Right direction) const noexcept {
+    if (direction != Right::Send && direction != Right::Receive)
+        return {Error::InvalidArgument, 0};
+    if (const auto status = Check(handle, direction); status != Error::None)
+        return {status, 0};
+    return entries_.find(handle)->second.queue->Readiness(direction);
+}
 Result HandleTable::Insert(std::shared_ptr<MessageQueue> queue, Right rights) {
+    if (!active_) return {Error::InvalidHandle, 0};
     if (!queue || !ValidRights(rights)) return {Error::InvalidArgument, 0};
     if (entries_.size() >= capacity_ || next_handle_ == 0)
         return {Error::Exhausted, 0};
     const auto handle = next_handle_;
     try {
         const auto [iter, inserted] = entries_.emplace(handle, Entry{std::move(queue), rights});
-        (void)iter;
         if (!inserted) return {Error::Exhausted, 0};
+        iter->second.queue->Attach(rights);
     } catch (const std::bad_alloc&) {
         return {Error::OutOfMemory, 0};
     }
@@ -62,6 +100,7 @@ Result HandleTable::CreateQueue(std::size_t queue_capacity) {
     }
 }
 Error HandleTable::Check(std::uint32_t handle, Right required) const noexcept {
+    if (!active_) return Error::InvalidHandle;
     const auto it = entries_.find(handle);
     if (handle == 0 || it == entries_.end()) return Error::InvalidHandle;
     return HasRights(it->second.rights, required) ? Error::None : Error::PermissionDenied;
@@ -72,6 +111,7 @@ std::shared_ptr<MessageQueue> HandleTable::Get(std::uint32_t handle,
     return entries_.at(handle).queue;
 }
 Result HandleTable::Duplicate(std::uint32_t handle, Right requested) {
+    if (!active_) return {Error::InvalidHandle, 0};
     const auto it = entries_.find(handle);
     if (handle == 0 || it == entries_.end()) return {Error::InvalidHandle, 0};
     if (!HasRights(it->second.rights, Right::Duplicate)) return {Error::PermissionDenied, 0};
@@ -81,6 +121,7 @@ Result HandleTable::Duplicate(std::uint32_t handle, Right requested) {
 }
 Result HandleTable::GrantTo(std::uint32_t handle, HandleTable& recipient,
                             Right requested) const {
+    if (!active_) return {Error::InvalidHandle, 0};
     const auto it = entries_.find(handle);
     if (handle == 0 || it == entries_.end()) return {Error::InvalidHandle, 0};
     if (!HasRights(it->second.rights, Right::Duplicate))
@@ -90,7 +131,10 @@ Result HandleTable::GrantTo(std::uint32_t handle, HandleTable& recipient,
     return recipient.Insert(it->second.queue, requested);
 }
 Result HandleTable::Close(std::uint32_t handle) noexcept {
-    if (handle == 0 || entries_.erase(handle) != 1) return {Error::InvalidHandle, 0};
+    const auto it = entries_.find(handle);
+    if (handle == 0 || it == entries_.end()) return {Error::InvalidHandle, 0};
+    if (active_) it->second.queue->Detach(it->second.rights);
+    entries_.erase(it);
     return {Error::None, 0};
 }
 } // namespace nint2::kernel
