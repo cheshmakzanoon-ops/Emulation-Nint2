@@ -16,6 +16,22 @@ jobs:
         run: cmake --build build --config Debug --parallel 2
       - name: Test
         run: ctest --test-dir build -C Debug --output-on-failure
+      - name: Independently cross-compile original AArch64 C IPC guest
+        shell: bash
+        run: |
+          set -euo pipefail
+          clang --version
+          ld.lld --version
+          clang --target=aarch64-none-elf -O0 -ffreestanding -fno-builtin \
+            -fno-stack-protector -fno-unwind-tables -nostdlib -fuse-ld=lld \
+            -Wl,-Ttext=0x10000 -Wl,--build-id=none -Wl,-z,max-page-size=4096 \
+            tests/fixtures/original_compiled_ipc.c -o build/original_compiled_ipc.elf
+      - name: Run the independently linked AArch64 C IPC guest
+        shell: bash
+        run: |
+          set -euo pipefail
+          output="$(./build/nint2 --run-synthetic build/original_compiled_ipc.elf)"
+          test "$output" = "C guest IPC verified!"
   windows:
     runs-on: windows-latest
     steps:
