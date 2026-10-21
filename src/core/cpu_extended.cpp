@@ -234,6 +234,51 @@ std::optional<CpuResult> CpuInterpreter::StepExtended(GuestMemory& memory, std::
         WriteReg(rt, value, wide);
         return done();
     }
+    if ((op & 0x7FE00000U) == 0x5AC00000U) {
+        // A64 data-processing (one-source): RBIT, REV16, REV32/REV,
+        // CLZ and CLS. Only the allocated scalar W/X encodings are accepted.
+        // Bits [20:16] are reserved in this family.
+        const unsigned width = wide ? 64 : 32;
+        const unsigned opcode = (op >> 10) & 63;
+        if (((op >> 16) & 31) != 0 || opcode > 5 ||
+            (!wide && opcode == 3)) return illegal();
+        const auto value = ReadReg(rn, wide);
+        std::uint64_t output = 0;
+        if (opcode == 0) {
+            // Bit reversal, not a byte reversal.
+            for (unsigned i = 0; i < width; ++i)
+                output |= ((value >> i) & 1ULL) << (width - 1 - i);
+        } else if (opcode <= 3) {
+            // Reverse bytes independently inside 16-, 32-, or 64-bit groups.
+            const unsigned group_bytes = opcode == 1 ? 2 : opcode == 2 ? 4 : 8;
+            const unsigned bytes = width / 8;
+            for (unsigned i = 0; i < bytes; ++i) {
+                const unsigned group = i / group_bytes;
+                const unsigned reversed = group * group_bytes +
+                                          (group_bytes - 1 - i % group_bytes);
+                output |= ((value >> (8 * i)) & 0xffULL) << (8 * reversed);
+            }
+        } else if (opcode == 4) {
+            // CLZ(0) is defined: 32 for WZR, 64 for XZR.
+            unsigned count = 0;
+            for (unsigned bit = width; bit > 0; --bit) {
+                if ((value >> (bit - 1)) & 1U) break;
+                ++count;
+            }
+            output = count;
+        } else {
+            // CLS counts leading sign bits EXCLUDING the most significant bit.
+            const auto sign = (value >> (width - 1)) & 1U;
+            unsigned count = 0;
+            for (unsigned bit = width - 1; bit > 0; --bit) {
+                if (((value >> (bit - 1)) & 1U) != sign) break;
+                ++count;
+            }
+            output = count;
+        }
+        WriteReg(rt, output, wide);
+        return done();
+    }
     return std::nullopt;
 }
 } // namespace nint2
