@@ -34,6 +34,16 @@ if(NINT2_BUILD_TESTS)
   add_executable(nint2_kernel_tests tests/kernel_tests.cpp)
   target_link_libraries(nint2_kernel_tests PRIVATE nint2_core)
   add_test(NAME kernel_handles_ipc COMMAND nint2_kernel_tests)
+  add_executable(nint2_compiled_c_tests tests/compiled_c_guest_tests.cpp)
+  target_link_libraries(nint2_compiled_c_tests PRIVATE nint2_core)
+  add_test(NAME original_compiled_c_guest COMMAND nint2_compiled_c_tests)
+  add_test(NAME generate_compiled_c_elf COMMAND nint2_compiled_c_tests --emit-elf
+           "${CMAKE_CURRENT_BINARY_DIR}/compiled_c_guest.elf")
+  set_tests_properties(generate_compiled_c_elf PROPERTIES FIXTURES_SETUP authored_compiled_c_elf)
+  add_test(NAME cli_compiled_c_guest COMMAND nint2 --run-synthetic
+           "${CMAKE_CURRENT_BINARY_DIR}/compiled_c_guest.elf")
+  set_tests_properties(cli_compiled_c_guest PROPERTIES
+      FIXTURES_REQUIRED authored_compiled_c_elf PASS_REGULAR_EXPRESSION "Compiled C on AArch64!")
   add_executable(nint2_ipc_guest_tests tests/ipc_guest_tests.cpp)
   target_link_libraries(nint2_ipc_guest_tests PRIVATE nint2_core)
   add_test(NAME original_guest_ipc COMMAND nint2_ipc_guest_tests)
