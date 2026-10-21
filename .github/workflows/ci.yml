@@ -5,6 +5,13 @@ on:
     branches: [main]
   pull_request:
 
+# Only the latest push to a given branch needs full native, cross-compiled
+# and sanitizer validation. An active job is cancelled before a newer push
+# on the same branch is scheduled, avoiding hundreds of redundant queued jobs.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   linux:
     runs-on: ubuntu-24.04
