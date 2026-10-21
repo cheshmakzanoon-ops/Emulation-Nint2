@@ -32,6 +32,7 @@ FIXTURES = [
     ("original_vm_guest.s", "vm_guest_tests.cpp", "kWords", 46),
     ("original_heap_asset.s", "heap_guest_tests.cpp", "kWords", 46),
     ("original_atom.s", "cpu_atomic_tests.cpp", "insns", 21),
+    ("original_thread_counter.s", "thread_group_tests.cpp", "kIncrementGuest", 7),
 ]
 
 def host_words(path: Path, name: str, count: int) -> list[int]:
