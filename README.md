@@ -1,20 +1,16 @@
 # Emulation-Nint2
 
-**Experimental, independent Nintendo Switch 2 user-mode emulation research project.** Native Switch 2 software compatibility is a long-term objective, **not a current feature**.
+**Experimental independent AArch64 user-mode emulation research project targeting Nintendo Switch 2-compatible applications in the long term.** It is **not** capable of running Nintendo Switch 2 firmware or games.
 
-> **Current state (M0 early bootstrap):** a C++20 desktop command-line application, a small page-mapped guest-memory proof of concept, CTest tests and a 61-phase development plan. **No AArch64 guest execution, Horizon HLE, GPU emulation, Nintendo firmware or playable games yet.**
+## Current executable milestone
 
-## Project documents
+The project includes a portable C++20 sparse-page guest-memory layer and an original reference AArch64 interpreter. The interpreter supports a narrow subset of integer instructions, branches and 8–64-bit loads/stores. It executes an original machine-code smoke test that computes **7 + 35 = 42**, then stops at a BRK instruction.
 
-- [Master development plan — 61 phases](docs/MASTER_DEVELOPMENT_PLAN.md): technical architecture, exact phase work, tools, dependencies and exit criteria.
-- [Hardware research protocol](docs/HARDWARE_RESEARCH.md): what is publicly documented, unknown, safely observable and testable.
-- [Architecture decisions](docs/ARCHITECTURE.md): core module boundaries and reasons for the technical choices.
-- [Actual implementation status](docs/STATUS.md): implemented vs planned capabilities and verification.
-- [Contributor and agent instructions](AGENTS.md): development and evidence requirements.
+This is **CPU proof of execution**, not game or Horizon compatibility. The interpreter deliberately faults on unsupported instructions, unexecutable pages and invalid memory.
 
-## Compile and test
+## Build and verify
 
-Requires CMake 3.24+ and a C++20 compiler (Visual Studio/MSVC or Clang on Windows; GCC/Clang on Linux). The initial build **does not need** Vulkan, SDL, Dynarmic, Switch hardware, firmware, keys or games.
+Requires CMake >=3.24 and C++20 (MSVC/Clang on Windows; GCC/Clang on Linux). No firmware, console images, keys or extra runtime dependencies.
 
 ~~~sh
 git clone https://github.com/cheshmakzanoon-ops/Emulation-Nint2.git
@@ -22,24 +18,24 @@ cd Emulation-Nint2
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
 cmake --build build --config Debug
 ctest --test-dir build -C Debug --output-on-failure
+./build/nint2 --cpu-smoke
 ~~~
 
-Linux/Unix native run:
+Windows Visual Studio builds generally run 'build/Debug/nint2.exe --cpu-smoke'.
 
-~~~sh
-./build/nint2 --help
-./build/nint2 --version
-./build/nint2 --smoke
-~~~
+Expected output: 'AArch64 interpreter smoke passed: x0=42 steps=3'.
 
-On Windows Visual Studio builds, the executable is normally build/Debug/nint2.exe. The smoke command checks **host-native memory APIs only**; it does not interpret ARM64 instructions.
+## Documentation
 
-## Technical direction
+- [Master development plan — 61 phases](docs/MASTER_DEVELOPMENT_PLAN.md)
+- [Actual implementation and test status](docs/STATUS.md)
+- [Architecture decisions](docs/ARCHITECTURE.md)
+- [Hardware research methodology](docs/HARDWARE_RESEARCH.md)
+- [Provenance and rights](docs/PROVENANCE.md)
+- [Contributor/agent rules](AGENTS.md)
 
-C++20 + CMake, an independently written AArch64 reference interpreter, a vetted/pinned ARM64 dynamic recompiler, sparse memory/guest scheduling, version-aware Horizon-style high-level OS emulation and Vulkan rendering from **independently verified** GPU commands and shader behavior. A synthetic host renderer can be built before proprietary GPU instructions are understood. Each step must have an original program or fixture and honest compatibility reporting.
+## Copyright and hardware claims
 
-## Copyright, device security and provenance
+The repository contains original code and original assembly fixtures only. No Nintendo firmware, games, keys, protected dumps, SDK, DRM bypass procedures or copyrighted assets are included. Switch 2-specific reverse engineering requires lawfully obtained independent observations, documented uncertainty and reproducible evidence. No external libraries or prior emulator code have been imported.
 
-No Nintendo firmware, games, console keys, proprietary assets, protected traces or undocumented confidential SDK materials are distributed. Investigations use public information, independently written fixtures, and lawfully authorized behavior of owned hardware. The project does not instruct contributors to compromise console security or online services and is not associated with Nintendo or NVIDIA.
-
-**Final repository license has not been selected.** It must be resolved before accepting external contributions or integrating code with incompatible licenses.
+**Final project license is undecided.** The repository is not associated with Nintendo or NVIDIA.
