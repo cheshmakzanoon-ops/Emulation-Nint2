@@ -63,6 +63,31 @@ clang --target=aarch64-none-elf -nostdlib -fuse-ld=lld -Wl,-Ttext=0x10000 -Wl,--
 
 Expected: `Hello via kernel!`, then synthetic exit=0 and steps=25. CTest independently generates an original queue ELF in the build folder and verifies the normal CLI output even without cross-compilation tooling.
 
+## Compiled C guest: interpreter + stack + ELF + synthetic services
+
+The reference interpreter now executes **ordinary Clang-generated, freestanding AArch64 C code**—not only handcrafted assembly. The [independently authored C fixture](tests/fixtures/original_compiled_guest.c) computes a 23-byte weighted checksum using a loop and multiplication, compares it with 19103, calls a synthetic Write service, and exits with 0. It exercises function-call frames, paired/unscaled/register-offset loads and stores, conditional selects, signed/unsigned bitfields, MADD/MSUB, and branch instructions. Replacing one guest string byte causes the checksum test to exit 99 without output.
+
+**No Nintendo binaries or Horizon calls are involved.** Generated ELF test bytes are assembled into the build folder from original machine words embedded in the host C++ test, keeping Windows CI independent of cross-compilers.
+
+~~~sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+cmake --build build --config Debug
+ctest --test-dir build -C Debug --output-on-failure
+
+# Host test executable emits the original guest ELF (Linux single-config example).
+./build/nint2_compiled_c_tests --emit-elf build/compiled_c_guest.elf
+./build/nint2 --run-synthetic build/compiled_c_guest.elf
+~~~
+
+Expected guest stdout: `Compiled C on AArch64!` and the CLI reports `exit=0 steps=519`. Use `build/Debug/nint2_compiled_c_tests.exe` and `build/Debug/nint2.exe` for Visual Studio generators.
+
+The equivalent independently authored source may be cross-compiled using Clang/LLD:
+
+~~~sh
+clang --target=aarch64-none-elf -ffreestanding -fno-builtin -fno-stack-protector -nostdlib -O0 -fuse-ld=lld -Wl,-Ttext=0x10000 -Wl,-z,max-page-size=4096 -Wl,--build-id=none -Wl,-e,_start tests/fixtures/original_compiled_guest.c -o build/original_compiled_guest.elf
+./build/nint2 --run-synthetic build/original_compiled_guest.elf
+~~~
+
 ## Limitations and development
 
 No emulator of Nintendo proprietary formats or Horizon APIs, no JIT or GPU. Unsupported guest instructions and malformed executables are rejected explicitly. See the 61-phase plan in docs/MASTER_DEVELOPMENT_PLAN.md, current status in docs/STATUS.md, architecture in docs/ARCHITECTURE.md, provenance in docs/PROVENANCE.md, and guidelines in AGENTS.md.
