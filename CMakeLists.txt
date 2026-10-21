@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 project(EmulationNint2 VERSION 0.1.0 LANGUAGES CXX)
 option(NINT2_BUILD_TESTS "Build standalone foundation tests" ON)
-add_library(nint2_core STATIC src/core/memory.cpp src/core/cpu.cpp src/core/cpu_extended.cpp src/core/cpu_atomic.cpp src/core/cpu_lse.cpp src/core/cpu_system.cpp src/core/elf.cpp src/core/session.cpp src/core/kernel.cpp src/core/scheduler.cpp src/core/thread_group.cpp src/core/assets.cpp src/core/arena.cpp)
+add_library(nint2_core STATIC src/core/memory.cpp src/core/cpu.cpp src/core/cpu_extended.cpp src/core/cpu_atomic.cpp src/core/cpu_lse.cpp src/core/cpu_system.cpp src/core/cpu_pair.cpp src/core/elf.cpp src/core/session.cpp src/core/kernel.cpp src/core/scheduler.cpp src/core/thread_group.cpp src/core/assets.cpp src/core/arena.cpp)
 target_include_directories(nint2_core PUBLIC include)
 target_compile_features(nint2_core PUBLIC cxx_std_20)
 set_target_properties(nint2_core PROPERTIES CXX_EXTENSIONS OFF)
