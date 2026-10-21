@@ -34,6 +34,13 @@ if(NINT2_BUILD_TESTS)
   add_executable(nint2_ipc_guest_tests tests/ipc_guest_tests.cpp)
   target_link_libraries(nint2_ipc_guest_tests PRIVATE nint2_core)
   add_test(NAME original_guest_ipc COMMAND nint2_ipc_guest_tests)
+  add_test(NAME generate_ipc_guest_elf COMMAND nint2_ipc_guest_tests --emit-elf
+           "${CMAKE_CURRENT_BINARY_DIR}/synthetic_ipc.elf")
+  set_tests_properties(generate_ipc_guest_elf PROPERTIES FIXTURES_SETUP authored_ipc_elf)
+  add_test(NAME cli_guest_ipc COMMAND nint2 --run-synthetic
+           "${CMAKE_CURRENT_BINARY_DIR}/synthetic_ipc.elf")
+  set_tests_properties(cli_guest_ipc PROPERTIES
+      FIXTURES_REQUIRED authored_ipc_elf PASS_REGULAR_EXPRESSION "Hello via kernel!")
   add_test(NAME generate_guest_elf COMMAND nint2_session_tests --emit-elf
            "${CMAKE_CURRENT_BINARY_DIR}/synthetic_hello.elf")
   set_tests_properties(generate_guest_elf PROPERTIES FIXTURES_SETUP authored_elf)

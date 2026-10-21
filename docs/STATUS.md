@@ -57,3 +57,18 @@
 - [x] Commits: [13dda686](https://github.com/cheshmakzanoon-ops/Emulation-Nint2/commit/13dda68655c4b6d8c66dda7baf19f39a89ba84aa) (ADR/ADRP + flags); [c83cc965](https://github.com/cheshmakzanoon-ops/Emulation-Nint2/commit/c83cc96557b9a7fa63766436d6ec44913904bd90) (synthetic guest runtime), followed by CLI/fixture/docs commit.
 
 **Still missing:** real Horizon SVC numbers, IPC and service behavior, scheduler, kernel, GPU, JIT and hardware evidence. The synthetic interface is not a substitute for native Switch 2 behavior. No Windows GitHub Actions results were verified at the time of this milestone.
+
+
+## 2026-10-21 incremental kernel and guest IPC milestone
+
+**Breakthrough: original AArch64 guest ELF executes the complete synthetic queue Create → Send → Receive → Write → Close → Exit path**, crossing CPU, ELF loader, memory permissions, session dispatch, bounded message queue and handle table.
+
+- Commit [a6306e4](https://github.com/cheshmakzanoon-ops/Emulation-Nint2/commit/a6306e4de887f2be96ab0da5eb2a90f3eec502b6): capability-scoped handles, non-reusable IDs, duplicate-right subset checks, bounded FIFO IPC queues with empty/full/oversized tests.
+- Commit [4c81b78](https://github.com/cheshmakzanoon-ops/Emulation-Nint2/commit/4c81b7812d10bf3a52e2178608dadc0b9563ae1a): synthetic services 4–8, original AArch64 queue ELF fixture, guest-buffer validation, failure-preserving receive semantics and atomic cross-page writes.
+- CI/README/documentation follow-up: automatic fixture generation and CLI end-to-end stdout check.
+
+**Validation performed locally on Linux x64, 2026-10-21:** all **9/9** test groups passed under GCC, Clang, GCC UBSan and GCC ASan+UBSan against the local reconstructed/updated runtime (the connected repository also has three earlier guest-session/CLI tests not represented in that local 9-test count). Independently Clang+LLD-linked original_queue.s executed via ELF loader + interpreter + guest synthetic calls: stdout `Hello via kernel!\n`, exit=0, stop=0, steps=25, handles=0. Cross-page invalid-destination test confirms non-consumption and unmodified preceding bytes.
+
+**CI status and limitations:** GitHub Actions for the new commit must be checked separately; no Windows or remote CI success is claimed without a completed run. Still **not** native Switch 2 compatibility. No verified Horizon IPC, kernel service numbers, threading, real scheduling, GPU implementation, title formats, firmware or retail games. The outbound license remains undecided.
+
+**Next required work:** independent multi-process/cross-session queue semantics and deterministic scheduling, stronger CPU instruction conformance, parser fuzz coverage, documented service research, and Vulkan-only host rendering experiments. No undocumented native device behavior may be guessed from the synthetic ABI.

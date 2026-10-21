@@ -12,6 +12,12 @@ An independently authored AArch64 ELF can now call a **synthetic test-only** ser
 
 Build and test with CTest; it now generates an original ELF fixture into the build folder and executes it using `--run-synthetic`. See [synthetic guest ABI](docs/SYNTHETIC_ABI.md) for the exact documented calling convention and limits.
 
+## Original AArch64 guest IPC breakthrough
+
+The emulator now has a **synthetic**, capability-scoped handle table and bounded in-memory message queues. An independently assembled AArch64 ELF can create a queue, send a message, receive it into separate writable guest memory, print it and exit normally. This exercises executable loading, CPU interpretation, guest memory, permission checking, a miniature deterministic test kernel and message delivery end-to-end.
+
+The entire path is **original test code, not Horizon OS IPC or Switch 2 game compatibility**. See [synthetic ABI](docs/SYNTHETIC_ABI.md) and [implementation status](docs/STATUS.md).
+
 ## Build and test
 
 Requires CMake 3.24+ and C++20 (MSVC on Windows; GCC or Clang on Linux). No device firmware, game files or special dependencies.
@@ -45,6 +51,17 @@ clang --target=aarch64-none-elf -nostdlib -fuse-ld=lld -Wl,-Ttext=0x10000 -Wl,--
 ~~~
 
 Expected stdout: `Hello from AArch64!` followed by a newline. The CLI reports `exit=0 steps=8` on stderr. Windows MSVC builds run the equivalent executable from `build/Debug/nint2.exe`.
+
+## Original guest IPC demonstration
+
+Using optional Clang with the AArch64 target and LLD:
+
+~~~sh
+clang --target=aarch64-none-elf -nostdlib -fuse-ld=lld -Wl,-Ttext=0x10000 -Wl,--build-id=none -Wl,-z,max-page-size=4096 tests/fixtures/original_queue.s -o original_queue.elf
+./build/nint2 --run-synthetic original_queue.elf
+~~~
+
+Expected: `Hello via kernel!`, then synthetic exit=0 and steps=25. CTest independently generates an original queue ELF in the build folder and verifies the normal CLI output even without cross-compilation tooling.
 
 ## Limitations and development
 
