@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # Some host regressions replace an ASM RET with a deliberately invalid opcode.
 FIXTURES = [
     ("original_sysregs.s", "cpu_system_tests.cpp", "kSystemWords", 12),
+    ("original_pair.s", "cpu_pair_tests.cpp", "kPairWords", 17),
     ("original_lse.s", "cpu_lse_tests.cpp", "kSourceWords", 42),
     ("original_atom.s", "cpu_exclusive_tests.cpp", "kExclusiveWords", 22),
     ("original_logical_ops.s", "cpu_logical_tests.cpp", "code", 13),
