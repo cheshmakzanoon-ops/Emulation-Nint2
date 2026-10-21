@@ -60,12 +60,15 @@ def main():
         ("original_division_c", "-O1", "AArch64 C divide verified!\n"),
         ("original_ror_c", "-O1", "Optimized ARM64 rotate!\n"),
         ("original_lse_guest", "-O1", "Compiled ARM64 LSE atomics verified!\n"),
+        ("original_crc_guest", "-O1", "Compiled AArch64 CRC verified!\n"),
     ]
     for name, optimization, expected in cases:
         elf = output / f"{name}.elf"
         # The independent atomic C guest must emit actual ARMv8.1 LSE
         # instructions; do not silently fall back to compiler helper calls.
         extra = ["-march=armv8.1-a+lse", "-mgeneral-regs-only"] if name == "original_lse_guest" else []
+        if name == "original_crc_guest":
+            extra = ["-march=armv8.1-a+crc", "-mgeneral-regs-only"]
         run(flags + extra + [optimization, "-ffreestanding", "-fno-builtin",
                      "-fno-stack-protector", "-fno-unwind-tables",
                      FIXTURES / f"{name}.c", "-o", elf])
@@ -76,6 +79,12 @@ def main():
             for instruction in ("ldaddal", "casal", "ldeoral", "ldar"):
                 if not re.search(r"\b" + instruction + r"\b", disassembly):
                     raise RuntimeError("compiled LSE guest missing instruction: " + instruction)
+        if name == "original_crc_guest":
+            disassembly = subprocess.run([args.objdump, "-d", str(elf)], check=True,
+                                         capture_output=True, text=True, timeout=30).stdout
+            for instruction in ("crc32b", "crc32cb", "crc32x", "crc32cx"):
+                if not re.search(r"\b" + instruction + r"\b", disassembly):
+                    raise RuntimeError("compiled CRC guest missing instruction: " + instruction)
         if name == "original_ror_c":
             disassembly = subprocess.run([args.objdump, "-d", str(elf)], check=True,
                                          capture_output=True, text=True, timeout=30).stdout
@@ -94,7 +103,7 @@ def main():
     run([build / ("nint2_compiled_rpc_tests" + extension), "--run-pair", client, server])
     run([runtime, "--run-synthetic-pair", client, server],
         "C RPC client: 64 replies verified!\nC RPC server: 64 requests processed!\n")
-    print("PASS: five original C guests (including LSE), assembly pair and compiled C RPC pair")
+    print("PASS: six original C guests (including LSE and CRC), assembly pair and compiled C RPC pair")
     return 0
 
 
