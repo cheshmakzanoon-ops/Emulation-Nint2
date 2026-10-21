@@ -95,11 +95,15 @@ ElfResult LoadElf64(std::span<const std::uint8_t> image, GuestMemory& memory) {
         ++mapped;
     }
     for (const auto& seg : segments) {
-        for (std::uint64_t i = 0; i < seg.file_size; ++i) {
-            if (!memory.Write8(seg.vaddr + i, image[seg.offset + i])) {
-                rollback();
-                return {ElfError::MappingFailed, 0};
-            }
+        // Validate and copy the complete file-backed extent in one operation,
+        // rather than repeating per-byte page lookups and lazy allocations.
+        // WriteBuffer provides all-or-nothing semantics for the guest range.
+        if (seg.file_size != 0 &&
+            !memory.WriteBuffer(seg.vaddr,
+                image.subspan(static_cast<std::size_t>(seg.offset),
+                              static_cast<std::size_t>(seg.file_size)))) {
+            rollback();
+            return {ElfError::MappingFailed, 0};
         }
     }
     for (const auto& seg : segments) {
