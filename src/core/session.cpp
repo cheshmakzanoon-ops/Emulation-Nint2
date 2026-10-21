@@ -277,6 +277,49 @@ std::uint64_t SyntheticSession::HandleAssetEnumerate() {
     return memory_.WriteBuffer(cpu_.context.x[1], record) ? 1 : Error(14);
 }
 
+namespace {
+[[nodiscard]] std::uint64_t VirtualError(vm::Error error) noexcept {
+    switch (error) {
+    case vm::Error::None: return 0;
+    case vm::Error::InvalidArgument:
+    case vm::Error::InvalidRegion: return Error(22); // EINVAL
+    case vm::Error::AddressInUse: return Error(17); // EEXIST
+    case vm::Error::ResourceLimit:
+    case vm::Error::OutOfMemory:
+    case vm::Error::MappingFailed: return Error(12); // ENOMEM
+    }
+    return Error(22);
+}
+}
+
+std::uint64_t SyntheticSession::HandleGuestAllocate() {
+    const auto permissions = cpu_.context.x[1];
+    if (permissions > UINT8_MAX) return Error(22);
+    const auto result = arena_.Allocate(cpu_.context.x[0],
+                        static_cast<Access>(permissions), cpu_.context.x[2]);
+    return result.Ok() ? result.region.base : VirtualError(result.error);
+}
+
+std::uint64_t SyntheticSession::HandleGuestFree() {
+    return VirtualError(arena_.Free(cpu_.context.x[0]));
+}
+
+std::uint64_t SyntheticSession::HandleGuestProtect() {
+    if (cpu_.context.x[1] > UINT8_MAX) return Error(22);
+    return VirtualError(arena_.Protect(cpu_.context.x[0],
+                        static_cast<Access>(cpu_.context.x[1])));
+}
+
+std::uint64_t SyntheticSession::HandleGuestQuery() {
+    const auto result = arena_.Query(cpu_.context.x[0]);
+    if (!result.Ok()) return VirtualError(result.error);
+    std::array<std::uint8_t, 24> record{};
+    Store64(record, 0, result.region.base);
+    Store64(record, 8, result.region.size);
+    Store64(record, 16, static_cast<std::uint8_t>(result.region.access));
+    return memory_.WriteBuffer(cpu_.context.x[1], record) ? 0 : Error(14);
+}
+
 SessionResult SyntheticSession::Run(std::uint64_t max_steps) {
     if (exited_) return Outcome(SessionStop::Exited, CpuStop::SupervisorCall);
     assets_.Seal(); // immutable manifest once a guest may observe it
@@ -337,6 +380,14 @@ SessionResult SyntheticSession::Run(std::uint64_t max_steps) {
             cpu_.context.x[0] = HandleAssetRead(true);
         } else if (service == 17) { // Descriptor metadata including offset
             cpu_.context.x[0] = HandleAssetFstat();
+        } else if (service == 18) { // Map bounded private guest virtual pages
+            cpu_.context.x[0] = HandleGuestAllocate();
+        } else if (service == 19) { // Release an exact original arena region
+            cpu_.context.x[0] = HandleGuestFree();
+        } else if (service == 20) { // Change W^X checked page permissions
+            cpu_.context.x[0] = HandleGuestProtect();
+        } else if (service == 21) { // Query ownership and page attributes
+            cpu_.context.x[0] = HandleGuestQuery();
         } else if (service == 9) { // Query or cooperatively wait for queue readiness
             std::uint32_t handle{};
             const auto raw_direction = cpu_.context.x[1];

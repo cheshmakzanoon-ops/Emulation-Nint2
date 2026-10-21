@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include "nint2/arena.hpp"
 #include "nint2/assets.hpp"
 #include "nint2/cpu.hpp"
 #include <span>
@@ -51,6 +52,8 @@ public:
         std::span<const std::uint8_t> bytes) { return assets_.Mount(path, bytes); }
     [[nodiscard]] std::size_t OpenAssetCount() const noexcept { return assets_.OpenCount(); }
     [[nodiscard]] std::size_t AssetCount() const noexcept { return assets_.AssetCount(); }
+    [[nodiscard]] std::size_t ArenaRegionCount() const noexcept { return arena_.RegionCount(); }
+    [[nodiscard]] std::uint64_t ArenaAllocatedBytes() const noexcept { return arena_.AllocatedBytes(); }
     // Host-owned bootstrap authority; imports an attenuated capability before
     // guest execution without depending on compiler-generated startup steps.
     // This does not introduce a guest-visible service or share address spaces.
@@ -77,6 +80,10 @@ private:
     [[nodiscard]] std::uint64_t HandleAssetStat();
     [[nodiscard]] std::uint64_t HandleAssetEnumerate();
     [[nodiscard]] std::uint64_t HandleAssetFstat();
+    [[nodiscard]] std::uint64_t HandleGuestAllocate();
+    [[nodiscard]] std::uint64_t HandleGuestFree();
+    [[nodiscard]] std::uint64_t HandleGuestProtect();
+    [[nodiscard]] std::uint64_t HandleGuestQuery();
     [[nodiscard]] SessionResult Outcome(SessionStop stop, CpuStop cpu_stop,
                                         std::uint64_t fault = 0,
                                         std::uint64_t service = 0) const noexcept;
@@ -84,6 +91,7 @@ private:
     CpuInterpreter cpu_;
     kernel::HandleTable handles_;
     assets::AssetStore assets_;
+    vm::GuestArena arena_{memory_};
     std::string stdout_;
     std::string stderr_;
     std::uint64_t steps_{};
