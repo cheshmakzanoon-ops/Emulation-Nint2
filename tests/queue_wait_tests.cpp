@@ -95,7 +95,7 @@ int main() {
     REQUIRE(Matches(client_mem, 0x3000));
     REQUIRE(receiver.TotalSteps() < 40 && sender.TotalSteps() < 30);
     REQUIRE(receiver.HandleCount() == 1 && sender.HandleCount() == 1);
-    REQUIRE(!sender.CanResume());
+    REQUIRE(sender.CanResume()); // terminal sessions are not blocked waiters
     REQUIRE(scheduler.Run(1).stop == SchedulerStop::Completed);
 
     // A single waiter blocked on a still-open producer returns Deadlock
