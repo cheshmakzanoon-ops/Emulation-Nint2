@@ -208,6 +208,7 @@ CpuResult CpuInterpreter::Step(GuestMemory& memory) {
         if (kind == 0xD63F0000U) context.x[30] = next; // BLR
         next = target;
     } else {
+        if (const auto atomic = StepAtomic(memory, op)) return *atomic;
         if (const auto extended = StepExtended(memory, op)) return *extended;
         return {CpuStop::UndefinedInstruction, 1, pc, op};
     }
