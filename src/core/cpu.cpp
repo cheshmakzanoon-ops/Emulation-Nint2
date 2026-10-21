@@ -210,6 +210,9 @@ CpuResult CpuInterpreter::Step(GuestMemory& memory) {
     } else {
         if (const auto atomic = StepAtomic(memory, op)) return *atomic;
         if (const auto system = StepSystem(op)) return *system;
+        // CRC opcodes share the data-processing (2-source) family with
+        // variable shifts: dispatch them before the legacy decoder.
+        if (const auto crc = StepCrc(op)) return *crc;
         if (const auto extended = StepExtended(memory, op)) return *extended;
         return {CpuStop::UndefinedInstruction, 1, pc, op};
     }
