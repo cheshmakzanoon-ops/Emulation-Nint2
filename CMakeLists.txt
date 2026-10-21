@@ -33,6 +33,21 @@ if(NINT2_BUILD_TESTS)
            "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/asset_message.txt")
   set_tests_properties(cli_rejects_invalid_guest_asset_path PROPERTIES
       FIXTURES_REQUIRED original_asset_elf WILL_FAIL TRUE)
+  add_executable(nint2_heap_guest_tests tests/heap_guest_tests.cpp)
+  target_link_libraries(nint2_heap_guest_tests PRIVATE nint2_core)
+  add_test(NAME synthetic_original_arm64_heap_asset COMMAND nint2_heap_guest_tests)
+  add_test(NAME generate_original_heap_guest_elf COMMAND nint2_heap_guest_tests --emit-elf
+           "${CMAKE_CURRENT_BINARY_DIR}/original_heap_guest.elf")
+  set_tests_properties(generate_original_heap_guest_elf PROPERTIES
+      FIXTURES_SETUP original_heap_elf)
+  add_test(NAME cli_original_heap_guest COMMAND "${CMAKE_COMMAND}"
+           "-DNINT2_EXECUTABLE=$<TARGET_FILE:nint2>"
+           "-DGUEST_ELF=${CMAKE_CURRENT_BINARY_DIR}/original_heap_guest.elf"
+           "-DHOST_ASSET=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/asset_message.txt"
+           "-DEXPECTED_OUTPUT=Loaded from asset!"
+           -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_asset_cli.cmake")
+  set_tests_properties(cli_original_heap_guest PROPERTIES
+      FIXTURES_REQUIRED original_heap_elf TIMEOUT 30)
   add_executable(nint2_arena_tests tests/arena_tests.cpp)
   target_link_libraries(nint2_arena_tests PRIVATE nint2_core)
   add_test(NAME synthetic_virtual_memory_arena COMMAND nint2_arena_tests)
