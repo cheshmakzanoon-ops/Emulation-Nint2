@@ -4,6 +4,7 @@
 Offline test: only Clang AArch64 assembler, llvm-objcopy, and Python stdlib.
 """
 from pathlib import Path
+import argparse
 import re
 import struct
 import subprocess
@@ -38,12 +39,13 @@ def host_words(path: Path, name: str, count: int) -> list[int]:
         raise ValueError(f"insufficient {name} words: {len(words)} < {count}")
     return words[:count]
 
-def assembled_words(source: Path, temporary: Path, count: int) -> list[int]:
+def assembled_words(source: Path, temporary: Path, count: int,
+                    clang: str, objcopy: str) -> list[int]:
     obj = temporary.with_suffix(".o")
     output = temporary.with_suffix(".bin")
-    subprocess.run(["clang", "--target=aarch64-none-elf", "-c", str(source),
+    subprocess.run([clang, "--target=aarch64-none-elf", "-c", str(source),
                     "-o", str(obj)], check=True)
-    subprocess.run(["llvm-objcopy", "-O", "binary", "--only-section=.text",
+    subprocess.run([objcopy, "-O", "binary", "--only-section=.text",
                     str(obj), str(output)], check=True)
     data = output.read_bytes()
     if len(data) < 4 * count:
@@ -51,6 +53,10 @@ def assembled_words(source: Path, temporary: Path, count: int) -> list[int]:
     return list(struct.unpack("<" + "I" * count, data[:4 * count]))
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--clang", default="clang")
+    parser.add_argument("--objcopy", default="llvm-objcopy")
+    args = parser.parse_args()
     failed = False
     with tempfile.TemporaryDirectory(prefix="nint2-original-asm-") as folder:
         cache: dict[tuple[str,int],list[int]] = {}
@@ -58,7 +64,8 @@ def main() -> int:
             key = (fixture, count)
             if key not in cache:
                 cache[key] = assembled_words(ROOT / "tests/fixtures" / fixture,
-                                             Path(folder) / Path(fixture).stem, count)
+                                             Path(folder) / Path(fixture).stem, count,
+                                             args.clang, args.objcopy)
             actual = cache[key]
             expected = host_words(ROOT / "tests" / host, array, count)
             if actual != expected:

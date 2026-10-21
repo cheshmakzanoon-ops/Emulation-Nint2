@@ -10,7 +10,7 @@ if(MSVC)
 else()
   target_compile_options(nint2_core PRIVATE -Wall -Wextra -Wpedantic)
 endif()
-add_executable(nint2 src/app/main.cpp)
+add_executable(nint2 src/app/main.cpp src/app/synthetic_pair.cpp)
 target_link_libraries(nint2 PRIVATE nint2_core)
 if(NINT2_BUILD_TESTS)
   enable_testing()
@@ -75,6 +75,24 @@ if(NINT2_BUILD_TESTS)
   add_executable(nint2_session_import_tests tests/session_import_tests.cpp)
   target_link_libraries(nint2_session_import_tests PRIVATE nint2_core)
   add_test(NAME synthetic_host_queue_imports COMMAND nint2_session_import_tests)
+  add_executable(nint2_compiled_rpc_tests tests/compiled_rpc_guest_tests.cpp)
+  target_link_libraries(nint2_compiled_rpc_tests PRIVATE nint2_core)
+  add_test(NAME original_compiled_c_rpc COMMAND nint2_compiled_rpc_tests)
+  add_test(NAME generate_compiled_rpc_elf COMMAND nint2_compiled_rpc_tests --emit-elf
+           "${CMAKE_CURRENT_BINARY_DIR}/compiled_rpc_client.elf"
+           "${CMAKE_CURRENT_BINARY_DIR}/compiled_rpc_server.elf")
+  set_tests_properties(generate_compiled_rpc_elf PROPERTIES FIXTURES_SETUP original_rpc_elf)
+  add_test(NAME cli_compiled_rpc_pair COMMAND "${CMAKE_COMMAND}"
+           "-DNINT2_EXECUTABLE=$<TARGET_FILE:nint2>"
+           "-DCLIENT_ELF=${CMAKE_CURRENT_BINARY_DIR}/compiled_rpc_client.elf"
+           "-DSERVER_ELF=${CMAKE_CURRENT_BINARY_DIR}/compiled_rpc_server.elf"
+           -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_rpc_cli.cmake")
+  set_tests_properties(cli_compiled_rpc_pair PROPERTIES FIXTURES_REQUIRED original_rpc_elf)
+  add_test(NAME cli_rpc_rejects_invalid_elf COMMAND nint2 --run-synthetic-pair
+           "${CMAKE_CURRENT_SOURCE_DIR}/README.md"
+           "${CMAKE_CURRENT_BINARY_DIR}/compiled_rpc_server.elf")
+  set_tests_properties(cli_rpc_rejects_invalid_elf PROPERTIES
+      FIXTURES_REQUIRED original_rpc_elf WILL_FAIL TRUE)
   add_executable(nint2_compiled_c_tests tests/compiled_c_guest_tests.cpp)
   target_link_libraries(nint2_compiled_c_tests PRIVATE nint2_core)
   add_test(NAME original_compiled_c_guest COMMAND nint2_compiled_c_tests)
@@ -84,33 +102,44 @@ if(NINT2_BUILD_TESTS)
   add_test(NAME generate_compiled_ipc_elf COMMAND nint2_compiled_ipc_tests --emit-elf
            "${CMAKE_CURRENT_BINARY_DIR}/compiled_ipc_guest.elf")
   set_tests_properties(generate_compiled_ipc_elf PROPERTIES FIXTURES_SETUP authored_compiled_ipc_elf)
-  add_test(NAME cli_compiled_ipc_guest COMMAND nint2 --run-synthetic
-           "${CMAKE_CURRENT_BINARY_DIR}/compiled_ipc_guest.elf")
+  add_test(NAME cli_compiled_ipc_guest COMMAND "${CMAKE_COMMAND}"
+           "-DNINT2_EXECUTABLE=$<TARGET_FILE:nint2>"
+           "-DGUEST_ELF=${CMAKE_CURRENT_BINARY_DIR}/compiled_ipc_guest.elf"
+           "-DEXPECTED_OUTPUT=C guest IPC verified!"
+           -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_guest_cli.cmake")
   set_tests_properties(cli_compiled_ipc_guest PROPERTIES
-      FIXTURES_REQUIRED authored_compiled_ipc_elf
-      PASS_REGULAR_EXPRESSION "C guest IPC verified!")
+      FIXTURES_REQUIRED authored_compiled_ipc_elf TIMEOUT 30)
   add_test(NAME generate_compiled_c_elf COMMAND nint2_compiled_c_tests --emit-elf
            "${CMAKE_CURRENT_BINARY_DIR}/compiled_c_guest.elf")
   set_tests_properties(generate_compiled_c_elf PROPERTIES FIXTURES_SETUP authored_compiled_c_elf)
-  add_test(NAME cli_compiled_c_guest COMMAND nint2 --run-synthetic
-           "${CMAKE_CURRENT_BINARY_DIR}/compiled_c_guest.elf")
+  add_test(NAME cli_compiled_c_guest COMMAND "${CMAKE_COMMAND}"
+           "-DNINT2_EXECUTABLE=$<TARGET_FILE:nint2>"
+           "-DGUEST_ELF=${CMAKE_CURRENT_BINARY_DIR}/compiled_c_guest.elf"
+           "-DEXPECTED_OUTPUT=Compiled C on AArch64!"
+           -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_guest_cli.cmake")
   set_tests_properties(cli_compiled_c_guest PROPERTIES
-      FIXTURES_REQUIRED authored_compiled_c_elf PASS_REGULAR_EXPRESSION "Compiled C on AArch64!")
+      FIXTURES_REQUIRED authored_compiled_c_elf TIMEOUT 30)
   add_executable(nint2_ipc_guest_tests tests/ipc_guest_tests.cpp)
   target_link_libraries(nint2_ipc_guest_tests PRIVATE nint2_core)
   add_test(NAME original_guest_ipc COMMAND nint2_ipc_guest_tests)
   add_test(NAME generate_ipc_guest_elf COMMAND nint2_ipc_guest_tests --emit-elf
            "${CMAKE_CURRENT_BINARY_DIR}/synthetic_ipc.elf")
   set_tests_properties(generate_ipc_guest_elf PROPERTIES FIXTURES_SETUP authored_ipc_elf)
-  add_test(NAME cli_guest_ipc COMMAND nint2 --run-synthetic
-           "${CMAKE_CURRENT_BINARY_DIR}/synthetic_ipc.elf")
+  add_test(NAME cli_guest_ipc COMMAND "${CMAKE_COMMAND}"
+           "-DNINT2_EXECUTABLE=$<TARGET_FILE:nint2>"
+           "-DGUEST_ELF=${CMAKE_CURRENT_BINARY_DIR}/synthetic_ipc.elf"
+           "-DEXPECTED_OUTPUT=Hello via kernel!"
+           -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_guest_cli.cmake")
   set_tests_properties(cli_guest_ipc PROPERTIES
-      FIXTURES_REQUIRED authored_ipc_elf PASS_REGULAR_EXPRESSION "Hello via kernel!")
+      FIXTURES_REQUIRED authored_ipc_elf TIMEOUT 30)
   add_test(NAME generate_guest_elf COMMAND nint2_session_tests --emit-elf
            "${CMAKE_CURRENT_BINARY_DIR}/synthetic_hello.elf")
   set_tests_properties(generate_guest_elf PROPERTIES FIXTURES_SETUP authored_elf)
-  add_test(NAME cli_guest_elf COMMAND nint2 --run-synthetic
-           "${CMAKE_CURRENT_BINARY_DIR}/synthetic_hello.elf")
+  add_test(NAME cli_guest_elf COMMAND "${CMAKE_COMMAND}"
+           "-DNINT2_EXECUTABLE=$<TARGET_FILE:nint2>"
+           "-DGUEST_ELF=${CMAKE_CURRENT_BINARY_DIR}/synthetic_hello.elf"
+           "-DEXPECTED_OUTPUT=Hello from AArch64!"
+           -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_guest_cli.cmake")
   set_tests_properties(cli_guest_elf PROPERTIES
-      FIXTURES_REQUIRED authored_elf PASS_REGULAR_EXPRESSION "Hello from AArch64!")
+      FIXTURES_REQUIRED authored_elf TIMEOUT 30)
 endif()

@@ -1,6 +1,6 @@
 # Implementation status — 2026-10-21
 
-**Stage: M0 + partial phases 17, 18, 22. A native original AArch64 ELF test program runs. Still not a Nintendo Switch 2 emulator.**
+**Stage: original AArch64 runtime foundations with partial memory, interpreter, ELF, synthetic process and IPC support. Latest local validation: 36/36 CTests under GCC, Clang and GCC ASan+UBSan with leak checks; two compiled C processes complete 64 request/reply transactions. Native Nintendo Switch 2 compatibility remains unimplemented.**
 
 ## Implemented
 
@@ -35,7 +35,7 @@
 
 1. Confirm Windows/Linux/sanitizer GitHub Actions results.
 2. Expand original AArch64 instruction/ELF conformance corpus and fuzz harness.
-3. Implement deterministic guest process, synthetic SVC dispatch and IPC under independently designed interfaces.
+3. Extend the tested deterministic synthetic sessions/IPC with researched lifecycle and synchronization semantics; blocking waits, peer notifications and a JIT remain unfinished.
 4. Validate additional Switch 2-specific interfaces only using lawful measured evidence.
 
 ## 2026-10-21 interpreter correctness increment
@@ -200,3 +200,120 @@ with `-fsanitize=address,undefined -fno-omit-frame-pointer`, and executed with
 context provided the process-metadata access required by LeakSanitizer.
 Windows and remote CI remain unverified. No native Switch 2 interfaces,
 JIT, GPU or retail game execution is claimed.
+
+
+## 2026-10-21 verified compiled-C client/server breakthrough
+
+The reliability prerequisites were published to main as
+[7b5063d](https://github.com/cheshmakzanoon-ops/Emulation-Nint2/commit/7b5063dbd85394cf715d690910ce9ac5beee81ea).
+This milestone is recorded by `feat: run compiled ARM64 C client-server transactions end to end`.
+
+**Before/after proof:** the independently compiled original client reaches
+`EOR X18, X8, X1, ROR #13` (`0xcac13512`, PC `0x100ec`). The previous CPU from
+`22093af` traps there and its peer reaches the instruction budget. The corrected
+interpreter executes the complete request/reply application. This is tested
+original compiler compatibility; it does not establish native console behavior.
+
+### Implemented and reviewed
+
+- `tests/fixtures/original_rpc_client.c`, `original_rpc_server.c`,
+  `original_rpc.h`: independently authored C request/reply programs, 64 rounds,
+  32-byte packets with sequence/payload/inverse/checksum, two outstanding
+  requests, explicit errors, two wrong-direction permission checks per process,
+  handle cleanup and success output. Compiled at `-O1 -mgeneral-regs-only`.
+- `tests/fixtures/compiled_rpc_images.hpp`, `regenerate_rpc_fixtures.py`: compact
+  source-encoded original PT_LOAD images and a reproducible Clang/LLD 18
+  generator. Default CTest requires no cross-compiler or external runtime.
+- `tests/compiled_rpc_guest_tests.cpp`: reconstruct/load original ELFs, provision
+  send-only/receive-only queues, execute independent client/server sessions,
+  validate host digest and both exit codes, exercise queue capacity one,
+  private memory, deterministic replay, split budgets and explicit failures.
+- `src/app/synthetic_pair.cpp/.hpp`, `src/app/main.cpp`, `CMakeLists.txt`:
+  `--run-synthetic-pair client.elf server.elf` starts the original startup ABI,
+  enforces a shared million-instruction budget and 64-instruction quantum,
+  prints captured output and succeeds only when both guests exit zero.
+- `tests/check_guest_cli.cmake`, `check_rpc_cli.cmake`: exact output plus process
+  exit assertions. The former CTest regex-only property could accept correct
+  stdout with a failing exit; a temporary regression emitting expected text and
+  exiting 17 reproduced that false success and is rejected by the new wrapper.
+  Windows CRLF is normalized; extra/missing output is still rejected.
+- `.github/workflows/ci.yml`, `verify_compiled_guests.py`,
+  `verify_assembler_fixtures.py`: Ubuntu 24.04 Linux CI selects Clang/LLD/LLVM 18,
+  verifies original source/byte provenance, and executes all four independent
+  single-process C examples plus the assembly and C process pairs. Existing
+  Windows and sanitizer jobs run the expanded offline CTest suite.
+- `README.md`, `docs/SYNTHETIC_ABI.md`, `docs/ARCHITECTURE.md`,
+  `docs/PROVENANCE.md`: updated commands, contracts, evidence and limitations.
+
+### Actual runtime observations
+
+Normal CLI, recorded Clang/LLD 18 images, no priming or split-budget harness:
+
+```text
+C RPC client: 64 replies verified!
+C RPC server: 64 requests processed!
+Synthetic pair: stop=0 exited=2 failed=0 steps=10873
+Client: state=exited exit=0 steps=5459 pc=0x10308
+Server: state=exited exit=0 steps=5414 pc=0x102e8
+```
+
+Harness results below include an initial empty-queue receive and repeated
+997-instruction aggregate budgets. Priming is tracked separately, explaining
+the different CLI/harness instruction totals. Each schedule was replayed twice
+with identical reports and instruction counts. Both guests completed 64
+transactions with digest **`0x73ef55c8d67d7c57`**, two rights denials each,
+zero remaining handles and zero exit codes.
+
+| Quantum | Scheduled instructions | Full-queue send retries | Empty-queue receive retries |
+| ---: | ---: | ---: | ---: |
+| 1 | 11,162 | 0 | 181 |
+| 7 | 11,134 | 0 | 179 |
+| 64 | 11,302 | 51 | 140 |
+| 257 | 31,854 | 393 | 1,266 |
+
+Negative checks: corrupt request 7 causes server exit **114** after six completed
+requests, no server success output, and the peer is bounded at 200,000 aggregate
+instructions. A client that prints the success message then exits **77** is
+rejected even though the scheduler completes. Report pointer zero works; private
+sentinels at identical virtual addresses remain independent. The CLI rejects
+non-ELF input.
+
+### Validation actually executed
+
+Linux x64, CMake 3.28.3, GCC 13.3.0, Clang/LLD/LLVM 18.1.3:
+
+| Gate | Observed result |
+| --- | --- |
+| GCC Debug configure/build/full CTest | 36/36 passed |
+| Clang Debug configure/build/full CTest | 36/36 passed |
+| GCC ASan + UBSan + leak checking | 36/36 passed; no reported findings |
+| Original assembly/source instruction mappings | 9/9 passed |
+| Recorded RPC PT_LOAD bytes vs fresh Clang/LLD 18 output | Exact match |
+| Independent compiled C / assembly / C process pairs | All expected stdout and zero exits; RPC negative suite also passed |
+
+Commands executed include:
+
+```sh
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
+cmake --build build --parallel 4
+ctest --test-dir build --output-on-failure
+cmake -S . -B build/clang -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=clang++-18
+cmake --build build/clang --parallel 4
+ctest --test-dir build/clang --output-on-failure
+python3 tests/verify_assembler_fixtures.py --clang clang-18 --objcopy llvm-objcopy-18
+python3 tests/verify_compiled_guests.py --build-dir build --clang clang-18 --lld ld.lld-18 --objdump llvm-objdump-18 --check-rpc-fixtures
+```
+
+Sanitizer build uses `-fsanitize=address,undefined -fno-omit-frame-pointer`
+plus matching linker flags, with `ASAN_OPTIONS=detect_leaks=1:halt_on_error=1`
+and `UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1`. Approved execution
+allowed LeakSanitizer process-metadata access. The first Clang test invocation
+encountered three incomplete/non-executable local linker outputs; relinking
+those generated files resolved the execution errors and the full suite passed.
+No source change or test exclusion was used to address that local artifact issue.
+
+**Limits and remaining gates:** Windows execution and latest GitHub Actions
+completion must be checked separately; no remote success is inferred from
+these local runs. Queue calls remain nonblocking; there is no peer-close
+notification, blocking wait or deadlock detector. This is an original synthetic
+runtime milestone, with no JIT, renderer, Horizon ABI, firmware or game support.

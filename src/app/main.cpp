@@ -7,8 +7,11 @@
 #include <string_view>
 #include "nint2/cpu.hpp"
 #include "nint2/memory.hpp"
+#include "synthetic_pair.hpp"
 
 int main(int argc, char** argv) {
+    if (argc == 4 && std::string_view(argv[1]) == "--run-synthetic-pair")
+        return RunSyntheticPair(argv[2], argv[3]);
     if (argc == 3 && (std::string_view(argv[1]) == "--run-elf" ||
                       std::string_view(argv[1]) == "--run-synthetic")) {
         const bool synthetic = std::string_view(argv[1]) == "--run-synthetic";
@@ -56,12 +59,12 @@ int main(int argc, char** argv) {
         return execution.stop == nint2::CpuStop::Breakpoint ? 0 : 1;
     }
     if (argc != 2) {
-        std::cerr << "Usage: nint2 --help | --version | --smoke | --cpu-smoke | --run-elf <original.elf> | --run-synthetic <original.elf>\n";
+        std::cerr << "Usage: nint2 --help | --version | --smoke | --cpu-smoke | --run-elf <original.elf> | --run-synthetic <original.elf> | --run-synthetic-pair <client.elf> <server.elf>\n";
         return 2;
     }
     const std::string_view option = argv[1];
     if (option == "--help") {
-        std::cout << "nint2 research runtime: --help | --version | --smoke | --cpu-smoke | --run-elf <original.elf> | --run-synthetic <original.elf>\n"
+        std::cout << "nint2 research runtime: --help | --version | --smoke | --cpu-smoke | --run-elf <original.elf> | --run-synthetic <original.elf> | --run-synthetic-pair <client.elf> <server.elf>\n"
                      "Original AArch64 tests only; no Switch 2 game/firmware support.\n";
         return 0;
     }

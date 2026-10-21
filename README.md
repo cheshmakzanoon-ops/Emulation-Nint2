@@ -2,6 +2,60 @@
 
 **Independent experimental AArch64 user-mode emulation project researching future Nintendo Switch 2 application compatibility. It cannot run Nintendo games or firmware.**
 
+## Latest verified milestone: two compiled C processes
+
+Two independently compiled AArch64 C programs now complete **64 bidirectional
+request/reply transactions** through two capacity-one queues. Both validate
+packet sequence, payload and checksum, enforce direction-restricted queue
+capabilities, close their handles and exit zero. The implementation includes
+private address spaces, deterministic scheduling, real queue backpressure and
+an independent host digest check. Full results and historical progress are in
+[STATUS.md](docs/STATUS.md).
+
+Run the demo with any supported native C++20 toolchain; no ARM64 compiler is
+needed for the checked-in original fixture images:
+
+```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+cmake --build build --config Debug --parallel 2
+ctest --test-dir build -C Debug --output-on-failure
+./build/nint2 --run-synthetic-pair build/compiled_rpc_client.elf build/compiled_rpc_server.elf
+```
+
+For a Windows Visual Studio build, the final command is:
+
+```powershell
+.\build\Debug\nint2.exe --run-synthetic-pair build/compiled_rpc_client.elf build/compiled_rpc_server.elf
+```
+
+Expected stdout:
+
+```text
+C RPC client: 64 replies verified!
+C RPC server: 64 requests processed!
+```
+
+The normal CLI run takes **10,873 guest instructions** with the recorded
+Clang/LLD 18 fixture images; both exits are zero. The integration harness uses
+additional empty-queue priming and split budgets, so its instruction counts
+are different. It tests quanta 1, 7, 64 and 257 twice each and requires identical
+replay results. Both guest digests equal `0x73ef55c8d67d7c57`.
+
+To reproduce the independent compiler-source verification on Linux with
+Clang/LLD/LLVM 18 installed:
+
+```sh
+python3 tests/verify_assembler_fixtures.py --clang clang-18 --objcopy llvm-objcopy-18
+python3 tests/verify_compiled_guests.py --build-dir build --clang clang-18 --lld ld.lld-18 --objdump llvm-objdump-18 --check-rpc-fixtures
+```
+
+This compiles and executes four original single-process C guests, the original
+assembly sender/receiver pair, and the compiled C request/reply pair. The normal
+build remains offline and requires no cross-compiler. RPC guest compilation
+uses `-O1 -mgeneral-regs-only`, consistent with the interpreter's current integer
+scope. Blocking waits, peer-close notification, JIT, graphics and native console
+interfaces remain future work.
+
 ## Working ELF64/AArch64 execution milestone
 
 The reference interpreter executes original ARM64 instructions with guest page permissions. A bounded static ELF64 loader maps PT_LOAD segments. Original program: MOVZ W0,#7; ADD W0,W0,#35; BRK #0. The result is x0=42 after 3 instructions.
@@ -115,7 +169,7 @@ clang --target=aarch64-none-elf -O0 -ffreestanding -fno-builtin \
 
 Expected stdout: C guest IPC verified! followed by a newline; expected exit 0.
 CTest checks original_compiled_c_ipc and cli_compiled_ipc_guest offline, without
-requiring an AArch64 compiler on CI. **The new CI runs are pending verification.**
+requiring an AArch64 compiler on CI. **Local full-runtime validation now passes; remote CI is tracked separately.**
 This test-only synthetic ABI does not establish Switch 2 game compatibility.
 
 ## Limitations and development
@@ -155,9 +209,9 @@ clang --target=aarch64-none-elf -nostdlib -fuse-ld=lld \
 
 This invocation is suitable for Linux single-config builds. On Windows use the
 corresponding Debug test executable and prebuilt in-tree ELF fixtures. Linux CI
-also attempts the independent cross-compiled pair after CTest. **At the time of
-these commits all newly triggered GitHub Actions runs remained queued, and the
-new runtime integration is not yet verified as passing on GitHub.**
+also executes the independent cross-compiled pair after CTest. Local validation
+now confirms both guest exits and the PING! exchange; see the latest status
+entry for remote CI results.
 
 ## Integer ISA expansion and original-source parity (2026-10-21)
 
@@ -172,8 +226,8 @@ unallocated encodings must trap.
 encodings, reserved-opcode cases and deterministic host-oracle vectors.
 Optimized freestanding C examples in `tests/fixtures/original_division_c.c`
 and `tests/fixtures/original_ror_c.c` are cross-compiled to AArch64 ELFs
-and executed by the normal `--run-synthetic` CLI **on Linux CI**; their
-successful execution is not claimed until the pending CI actually completes.
+and executed by the normal `--run-synthetic` CLI locally and in the Linux CI
+configuration. Local execution has been verified with exit 0 and exact output.
 
 The separate source/encoding check can run on a Linux machine with Clang,
 llvm-objcopy and Python 3, without any console software:
@@ -182,6 +236,6 @@ llvm-objcopy and Python 3, without any console software:
 python3 tests/verify_assembler_fixtures.py
 ~~~
 
-This compares eight checked-in host instruction vectors against original
-Clang-assembled AArch64 source fixtures. CMake currently registers 29
-CTest entries, pending completed validation for these new revisions.
+This compares nine checked-in host instruction vectors against original
+Clang-assembled AArch64 source fixtures. CMake now registers 36 CTest entries.
+See the latest status entry for executed results and outstanding platform gates.

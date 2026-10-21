@@ -30,3 +30,5 @@ saves/
 *.key
 prod.keys
 title.keys
+__pycache__/
+*.pyc

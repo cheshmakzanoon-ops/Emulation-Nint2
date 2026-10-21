@@ -44,7 +44,7 @@ Services 4–8 operate entirely within a synthetic session; they are **not Horiz
 
 Rights bits: Send=1, Receive=2, Duplicate=4. Only mask values 1 through 7 are meaningful; zero or unknown bits cannot be granted. Error values are returned as unsigned 64-bit two's-complement negative integers: -9 EBADF, -13 EACCES, -14 EFAULT, -22 EINVAL, -24 EMFILE, -11 EAGAIN, -90 EMSGSIZE, -12 ENOMEM. The queue supports at most 4096 bytes per message, 65536 queued bytes, and 64 pending messages; maximum handles per session is 256. These are **chosen test limits**, not console specifications.
 
-The receive path peeks without removing the message and calls `GuestMemory::WriteBuffer`, which validates every destination page and prepares backing memory before any bytes are written. A failed guest write leaves the received message queued and prevents a partially modified destination buffer. A send copies all bytes out of verified readable guest memory before enqueueing. There is no host networking, OS-native IPC, blocking wait, cross-process handle passing, or hardware-observed guest ABI yet. This phase is deterministic, single-threaded and does not model real Horizon scheduling.
+The receive path peeks without removing the message and calls `GuestMemory::WriteBuffer`, which validates every destination page and prepares backing memory before any bytes are written. A failed guest write leaves the received message queued and prevents a partially modified destination buffer. A send copies all bytes out of verified readable guest memory before enqueueing. There is no host networking, OS-native IPC, blocking wait, guest-visible cross-session handle transfer, or hardware-observed guest ABI yet. Host-authorized queue sharing is described below. This runtime is deterministic, single-threaded and does not model real Horizon scheduling.
 
 ### Reproducible independent guest IPC demonstration
 
@@ -94,12 +94,25 @@ revoking the source. Recipients have independent, monotonically allocated handle
 IDs. Closing the source handle does not revoke independently granted handles.
 There is no guest-visible handle-transfer service and **no Horizon ABI claim**.
 
+`SyntheticSession::ImportQueue(owner, source_handle, rights)` imports a queue
+from a host-owned `kernel::HandleTable` into the receiving session. It delegates
+to the same checked `GrantTo` operation: the source requires Duplicate authority,
+requested rights must be a valid subset, and recipient exhaustion cannot revoke
+the source or alter existing imports. Importing a queue does not execute guest
+instructions or change CPU registers. The controller receives the process-local
+handle ID and can place it in the chosen startup registers before execution.
+This avoids depending on a fixed count of compiler-generated startup instructions.
+The owner may close its handles after provisioning; imported references keep the
+queue alive. [Session import tests](../tests/session_import_tests.cpp) cover rights,
+independent IDs, lifetime, full handle tables and recovery.
+
 `SyntheticScheduler` accepts at most 16 preconstructed `SyntheticSession`
 references and executes each in deterministic round-robin instruction quanta
 (default 1 instruction, configurable). A `Run` call has an aggregate instruction
 budget across all sessions; repeated calls preserve the next scheduled process
 and cumulative count. Guest faults only terminate that guest; the result reports
-number of successful exits and failures. Separate sessions own separate
+the number of exits and faults. An exit can carry a nonzero status; callers must
+inspect each guest's exit code before treating the run as successful. Separate sessions own separate
 `GuestMemory` instances, CPU registers, virtual ticks and captured output;
 only explicitly granted queues share message storage. The caller owns session
 lifetimes and is responsible for granting capabilities.
@@ -114,6 +127,103 @@ independently cross-linked sender/receiver ELF paths with `--run-pair`.
 All results remain subject to CI validation. This feature is not true guest
 thread preemption, native services, real console scheduling or a kernel port.
 
+## Original compiled C request/reply protocol
+
+The [client](../tests/fixtures/original_rpc_client.c) and
+[server](../tests/fixtures/original_rpc_server.c) are independently compiled
+freestanding AArch64 C programs using only the existing synthetic services 1–8.
+Their [shared source header](../tests/fixtures/original_rpc.h) defines a test
+startup convention and a 32-byte packet with four little-endian `uint64_t`
+fields: sequence number, value, bitwise inverse of the value, and checksum.
+The client sends 64 requests, validates every transformed reply, and accumulates
+a digest; the server independently validates requests and computes replies.
+The client sends two requests before receiving two replies, exercising
+backpressure in queues with capacity one. These packet fields and startup
+registers are original test contracts, not native console interfaces.
+
+### CLI startup and host provisioning
+
+```sh
+python3 tests/regenerate_rpc_fixtures.py --compile-only --output-dir build/rpc
+./build/nint2 --run-synthetic-pair \
+  build/rpc/original_rpc_client.elf build/rpc/original_rpc_server.elf
+```
+
+[The generator](../tests/regenerate_rpc_fixtures.py) uses Clang/LLD with `-O1`
+and `-mgeneral-regs-only`; `--check` compares the recorded Clang 18 PT_LOAD bytes
+with fresh compiler output. [The C++ harness](../tests/compiled_rpc_guest_tests.cpp)
+can also emit original ELFs from the checked-in
+[load images](../tests/fixtures/compiled_rpc_images.hpp) with `--emit-elf`, allowing
+the runtime tests to run without a cross-compiler. Its `--run-pair` mode accepts
+the independently linked ELF files and runs the same assertions.
+
+The [pair CLI](../src/app/synthetic_pair.cpp) loads two ELF files of at most
+32 MiB each into separate `GuestMemory` objects, each with a 1 GiB virtual
+address-space limit. Each guest receives its own 64 KiB read/write stack at
+`0x3fff0000`, with initial SP `0x40000000`, and a private read/write report page
+at `0x3ffe0000`. An ELF that overlaps either reserved mapping is rejected.
+Equal virtual addresses do not share backing memory.
+
+The host creates a request queue and a reply queue, each with capacity one. It
+imports Send-only request authority and Receive-only reply authority into the
+client, and the opposite directions into the server. No imported capability
+has Duplicate authority. The bootstrap owner then closes both of its handles;
+the guests retain the queue references needed for the exchange.
+
+| Startup register | Meaning in each guest |
+| --- | --- |
+| `x0` | Its process-local Send-only queue handle |
+| `x1` | Its process-local Receive-only queue handle |
+| `x2` | Guest pointer to an optional private 64-byte report; the CLI supplies `0x3ffe0000`. A host test may supply zero to disable reporting and fault controls |
+
+The CLI uses an aggregate **1,000,000-instruction budget** for both guests and
+a **64-instruction round-robin quantum**. It captures each guest's output and
+prints the client output followed by the server output; this is not a merged
+instruction-by-instruction output trace. Success requires scheduler completion,
+two exits, no guest fault, and both exit statuses zero. The CLI does not interpret
+the report or assert that arbitrary input ELFs implement this RPC fixture;
+packet counts, digest and expected output are checked by the test harness.
+
+### Optional private report
+
+The report contains eight little-endian `uint64_t` fields. The guest clears
+offsets 0–40 at startup. The host initializes the final two control fields
+before execution; the CLI leaves them zero. Each guest has its own report,
+even when both pointers have the same virtual address.
+
+| Byte offset | Field | Meaning |
+| ---: | --- | --- |
+| 0 | `completed` | Last successfully processed request or verified reply, up to 64 |
+| 8 | `digest` | Accumulated digest of processed reply values |
+| 16 | `send_retries` | Send calls returning `-11` because the queue is full |
+| 24 | `receive_retries` | Receive calls returning `-11` because the queue is empty |
+| 32 | `rights_denials` | Successful checks that wrong-direction capabilities return `-13`; expected value 2 |
+| 40 | `exit_code` | Status recorded immediately before synthetic Exit |
+| 48 | `corrupt_sequence` | Client-only test control: a sequence from 1–64 whose outgoing request checksum is corrupted; zero disables it |
+| 56 | `final_exit_code` | Test control: exit with this status after the normal success output, to verify that output alone cannot establish success |
+
+The harness tests quanta 1, 7, 64 and 257 with repeated budgets of at most 997
+instructions per scheduler call and a 200,000-instruction aggregate limit. It
+compares both guest digests with a separate host calculation, replays identical
+schedules, checks private sentinels, requires both guests to close their handles,
+and tests reporting disabled. It also verifies the exact corrupted-request error
+path and rejects success-looking output followed by a nonzero exit.
+
+### Retry and termination limits
+
+Send and Receive remain **nonblocking**. Full or empty queues return `-11`, and
+the original C fixtures retry in guest code, consuming ordinary instruction
+budget. There are no blocking waits, timeouts, peer-close notifications, or
+automatic error replies. Closing one handle leaves other queue references
+valid. Exiting a session stops execution but does not itself clear its handle
+table; normal RPC completion explicitly closes both guest handles.
+
+When the test corrupts request 7, the server exits with status 114 after six
+successful requests. Its peer continues retrying and is stopped by the test's
+aggregate instruction budget. That result is an expected bounded failure,
+not successful completion or implemented deadlock detection. Actual blocking
+synchronization and peer lifecycle notifications remain future work.
+
 ## New AArch64 original test-only integer instructions
 
 The ARM64 reference interpreter now includes ADC/ADCS/SBC/SBCS carry arithmetic,
@@ -122,4 +232,5 @@ ordinary ARM64 instruction semantics, not new synthetic SVC services or
 claims about Nintendo hardware. No changes were made to the eight guest test
 service numbers or handle/IPC rights contracts. Optimized original C programs
 exercise the new instructions through the existing ELF loader and explicit
-synthetic Write/Exit calls (Linux CI verification pending).
+synthetic Write/Exit calls. Local execution has been verified; remote CI
+results are tracked in STATUS.md.

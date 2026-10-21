@@ -47,3 +47,22 @@ fixtures were written independently; no external emulator code was imported.
 against Clang's assembler; C++20 `std::rotr` and literal arithmetic expectations
 provide separate value oracles. These are AArch64 architectural claims, not
 measurements of Nintendo Switch 2 hardware.
+
+
+## Original compiled-C request/reply corpus — 2026-10-21
+
+`original_rpc_client.c`, `original_rpc_server.c` and `original_rpc.h` are original
+freestanding C programs written for the documented synthetic ABI. The packet
+protocol, report layout, checksums and host digest oracle are independently
+authored project fixtures, not recovered console interfaces. The checked-in
+`compiled_rpc_images.hpp` contains only load bytes compiled from those sources
+using Ubuntu Clang/LLD 18.1.3 at `-O1 -mgeneral-regs-only`; it imports no guest
+runtime library. `tests/regenerate_rpc_fixtures.py --clang clang-18 --lld ld.lld-18 --check`
+reproduces the bytes. `tests/verify_compiled_guests.py` executes independently
+linked files through the actual loader/interpreter and validates the result.
+
+The CLI gate correction follows CMake's documented
+[PASS_REGULAR_EXPRESSION behavior](https://cmake.org/cmake/help/latest/prop_test/PASS_REGULAR_EXPRESSION.html):
+that property ignores the process exit code. Original temporary regression
+programs verified the false-success case; committed CMake wrappers now require
+both exact stdout and a successful process exit.
